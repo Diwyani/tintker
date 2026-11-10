@@ -394,16 +394,20 @@ export default function ColourTool() {
       <p className="sr-only" role="status">{busy ? "Reading image…" : status}</p>
       <footer className={styles.footer}>
         <details className={styles.social}>
-          <summary>Made by Diwyani</summary>
+          <summary>Built by Diwyani</summary>
           <div className={styles.footerPanel}>
             <a href="https://in.linkedin.com/in/diwyani-vajpayee-9b2270213" target="_blank" rel="noreferrer">LinkedIn</a>
             <a href="https://x.com/DiwyaniVajpayee" target="_blank" rel="noreferrer">Twitter</a>
           </div>
         </details>
         <span aria-hidden="true">·</span>
-        <details>
+        <details className={styles.credits}>
           <summary>Credits</summary>
-          <div className={styles.footerPanel}>HEIC decoding by <a href="https://github.com/hoppergee/heic-to">heic-to</a> and <a href="https://github.com/strukturag/libheif">libheif</a>.</div>
+          <div className={styles.footerPanel}>
+            <p>iPhone photos (HEIC) are opened with <a href="https://github.com/hoppergee/heic-to" target="_blank" rel="noreferrer">heic-to</a> and <a href="https://github.com/strukturag/libheif" target="_blank" rel="noreferrer">libheif</a>, under the <a href="https://www.gnu.org/licenses/lgpl-3.0.html" target="_blank" rel="noreferrer">LGPL-3.0</a>.</p>
+            <p className={styles.quiet}>Built with Next.js and React (MIT).</p>
+            <p className={styles.quiet}>© 2026 Diwyani Vajpayee. All rights reserved.</p>
+          </div>
         </details>
       </footer>
       <dialog ref={editor} className={styles.editor} aria-labelledby="gradient-title">

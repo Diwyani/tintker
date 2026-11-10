@@ -1,0 +1,10 @@
+/* A small reset (what Tailwind's preflight did inside Flipbook): no browser button, input or list styling. */
+*, ::before, ::after { box-sizing: border-box; border: 0 solid; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body { line-height: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; background: transparent; border-radius: 0; }
+button, [role="button"] { cursor: pointer; }
+img, svg, canvas, video { display: block; max-width: 100%; }
+ol, ul, menu { list-style: none; }
+summary { list-style: none; }
+a { color: inherit; }

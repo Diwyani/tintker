@@ -19,7 +19,7 @@
 .wordmark {
   position: absolute;
   inset-block-start: .85rem;
-  inset-inline-end: clamp(.75rem, 3vw, 2rem);
+  inset-inline-start: clamp(.75rem, 3vw, 2rem);
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
@@ -127,11 +127,18 @@
   gap: .45rem;
   color: var(--muted);
   font-size: 12px;
+  opacity: .75;
   z-index: 1;
 }
+.footer:hover, .footer:focus-within { opacity: 1; }
+.footer summary { transition: color .15s; }
+.footer summary:hover { color: var(--ink); }
+.credits .footerPanel { width: 18.5rem; line-height: 1.55; }
+.credits .footerPanel p + p { margin-top: .4rem; }
+.quiet { color: var(--muted); }
 .footer summary { cursor: pointer; list-style: none; }
 .footer summary::-webkit-details-marker { display: none; }
-.footer a, .social summary { text-decoration: underline; text-underline-offset: .22em; }
+.footerPanel a { text-decoration: underline; text-underline-offset: .22em; }
 .footerPanel {
   position: absolute;
   inset-inline-end: 0;
@@ -146,7 +153,7 @@
 }
 .social .footerPanel { display: flex; gap: .85rem; }
 @media (hover: hover) {
-  .social:hover::details-content { content-visibility: visible; }
+  .footer details:hover::details-content { content-visibility: visible; }
 }
 .editor p { margin: .35rem 0; }
 .error { color: #ffb8ab; text-align: center; }
