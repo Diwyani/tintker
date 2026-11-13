@@ -1,9 +1,9 @@
 "use client";
 
-import { ChevronDown, ImagePlus, Shuffle } from "lucide-react";
+import { Braces, Copy, Download, Hash, ImageDown, ImagePlus, Mail, RectangleVertical, RotateCcw, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { looksLikeHeic } from "@/lib/heic";
-import { hexOf, labsOf, linearCss, linearSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
+import { hexOf, labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
 import { extractPalettes, gradientOrders } from "./palette";
 import styles from "./tool.module.css";
 
@@ -18,7 +18,23 @@ const MODE_HINT: Record<Mode, string> = {
   Scene: "Colours that fill the frame",
   Accent: "Colours that stand out, even small ones",
 };
+const XIcon = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
+    <path d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.41l-5.8-7.58-6.64 7.58H.47l8.6-9.83L0 1.15h7.59l5.24 6.93Zm-1.29 19.5h2.04L6.49 3.24H4.3Z" />
+  </svg>
+);
+const LinkedInIcon = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
+    <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.83 3.37-1.83 3.6 0 4.27 2.37 4.27 5.46v6.26ZM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13Zm1.78 13.02H3.56V9h3.56v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0Z" />
+  </svg>
+);
+
+/** Where "Email" in the who-made-this popover goes. Empty hides it. */
+const EMAIL = "diwyani.vajpayee@gmail.com";
+
+const KIND_LABEL: Record<Kind, string> = { mesh: "Mesh", linear: "Linear", radial: "Radial" };
 const KIND_HINT: Record<Kind, string> = {
+  radial: "Radial: rings from the middle out, every colour the same width",
   mesh: "Mesh: each colour glows from where it is in the photo",
   linear: "Linear: bands sized by how much each colour covers",
 };
@@ -83,6 +99,8 @@ function sampleAt({ data, width, height }: ImageData, x: number, y: number): Swa
  * hex codes, and the title. 1080 × 1350, light paper grain.
  */
 async function drawCard(src: string, colours: Colour[], title: string) {
+  const family = getComputedStyle(document.documentElement).getPropertyValue("--font-hand").trim() || "Georgia, serif";
+  await document.fonts.load(`64px ${family}`).catch(() => {});
   const image = new Image();
   image.src = src;
   await image.decode();
@@ -106,7 +124,7 @@ async function drawCard(src: string, colours: Colour[], title: string) {
     ctx.fillText(c.hex.slice(1), pad + i * bw + 2, top + bandH + 34);
   });
   ctx.fillStyle = "#24231F";
-  ctx.font = "italic 400 46px Georgia, 'Times New Roman', serif";
+  ctx.font = `400 46px ${family}`;
   ctx.fillText(title || "Untitled", pad, H - pad - 4);
   ctx.fillStyle = "#A3A095";
   ctx.font = "500 22px -apple-system, system-ui, sans-serif";
@@ -123,6 +141,7 @@ export default function ColourTool() {
   const input = useRef<HTMLInputElement>(null);
   const imageBox = useRef<HTMLDivElement>(null);
   const saveMenu = useRef<HTMLDivElement>(null);
+  const meMenu = useRef<HTMLDivElement>(null);
   const request = useRef(0);
   const dragDepth = useRef(0);
   const frame = useRef(0);
@@ -133,10 +152,21 @@ export default function ColourTool() {
   const [picks, setPicks] = useState<Swatch[]>([]);
   const [kind, setKind] = useState<Kind>("mesh");
   const [grain, setGrain] = useState(35);
+  // PNG or SVG for gradient downloads, remembered in this browser.
+  const [peek, setPeek] = useState<Kind>();
+  const [format, setFormat] = useState<"png" | "svg">(() => {
+    try { return localStorage.getItem("tintker-format") === "svg" ? "svg" : "png"; } catch { return "png"; }
+  });
+  const chooseFormat = (value: "png" | "svg") => {
+    setFormat(value);
+    try { localStorage.setItem("tintker-format", value); } catch { /* private mode: just not remembered */ }
+  };
   const [order, setOrder] = useState(0);
   const [title, setTitle] = useState("");
   const [active, setActive] = useState<number>();
-  const [saveOpen, setSaveOpen] = useState(false);
+  const [open, setOpen] = useState<"save" | "me" | null>(null);
+  const saveOpen = open === "save";
+  const setSaveOpen = (value: boolean) => setOpen(value ? "save" : null);
   const [fileOver, setFileOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -146,15 +176,16 @@ export default function ColourTool() {
   useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
   useEffect(() => () => { request.current++; cancelAnimationFrame(frame.current); clearTimeout(noteTimer.current); }, []);
 
-  // The Save menu closes on Escape or a click outside it.
+  // A popover closes on Escape or a click outside it.
   useEffect(() => {
-    if (!saveOpen) return;
-    const away = (event: PointerEvent) => { if (!saveMenu.current?.contains(event.target as Node)) setSaveOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSaveOpen(false); };
+    if (!open) return;
+    const box = open === "save" ? saveMenu : meMenu;
+    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(null); };
     document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", escape); };
-  }, [saveOpen]);
+  }, [open]);
 
   /** The palette with each colour's share of the image. */
   const colours: Colour[] = useMemo(() => {
@@ -176,14 +207,21 @@ export default function ColourTool() {
     });
   }, [colours, order]);
 
+  /** Mesh: Shuffle moves each colour to another colour's spot, for a new arrangement. */
+  const meshColours = useMemo(() => {
+    const n = colours.length, k = n ? order % n : 0;
+    return k ? colours.map((c, i) => ({ ...c, x: colours[(i + k) % n].x, y: colours[(i + k) % n].y })) : colours;
+  }, [colours, order]);
+
   const previews = useMemo(() => {
     if (!photo || !colours.length) return null;
     const w = 200, h = Math.round(200 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
     return {
-      mesh: renderGradient("mesh", colours, w, h, grain / 100).toDataURL(),
+      mesh: renderGradient("mesh", meshColours, w, h, grain / 100).toDataURL(),
       linear: renderGradient("linear", linearColours, w, h, grain / 100).toDataURL(),
+      radial: renderGradient("radial", linearColours, w, h, grain / 100).toDataURL(),
     };
-  }, [photo, colours, linearColours, grain]);
+  }, [photo, colours, meshColours, linearColours, grain]);
 
   function say(message: string) {
     setNote(message);
@@ -246,14 +284,22 @@ export default function ColourTool() {
     setPicks(previous => previous.map((p, i) => i === index ? point : p));
   }
 
-  async function saveGradient() {
+  /** A gradient in the chosen file type. SVG has no grain, except Mesh's, which shows in browsers. */
+  async function downloadGradient(which: Kind) {
     if (!photo) return;
-    const long = 2048, ratio = photo.height / photo.width;
-    const w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
-    const canvas = renderGradient(kind, kind === "mesh" ? colours : linearColours, w, h, grain / 100);
-    download(await encode(canvas, "image/png"), `${slug(title)}-${kind}.png`);
-    setSaveOpen(false);
-    say(`Saved the ${kind} gradient`);
+    const ratio = photo.height / photo.width, ordered = which === "mesh" ? meshColours : linearColours;
+    if (format === "png") {
+      const long = 2048, w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
+      download(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}.png`);
+      setOpen(null);
+      say(`Saved the ${which} gradient`);
+      return;
+    }
+    const w = ratio > 1 ? Math.round(1024 / ratio) : 1024, h = ratio > 1 ? 1024 : Math.round(1024 * ratio);
+    const svg = which === "mesh" ? meshSvg(ordered, w, h, grain / 100) : which === "radial" ? radialSvg(ordered, w, h) : linearSvg(ordered, w, h);
+    download(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}.svg`);
+    setOpen(null);
+    say(which === "mesh" ? "Saved the SVG (grain shows in browsers only)" : "Saved the SVG (no grain)");
   }
 
   async function saveCard() {
@@ -265,6 +311,7 @@ export default function ColourTool() {
   }
 
   const browse = () => input.current?.click();
+  const changed = !!photo && picks.some((p, i) => p.hex !== photo.palettes[mode][i]?.hex || p.x !== photo.palettes[mode][i]?.x || p.y !== photo.palettes[mode][i]?.y);
   const ambient = previews?.[kind];
   const shown = active === undefined ? undefined : colours[active];
   const caption = note || (shown ? `${shown.hex} · ${Math.max(1, Math.round(shown.area * 100))}% of the photo` : "Click a colour to copy it. Drag a dot on the photo to pick another.");
@@ -290,7 +337,6 @@ export default function ColourTool() {
     >
       {/* The chosen gradient, softly behind everything: the page is the gradient you'd save. */}
       <div className={styles.ambient} style={{ backgroundImage: ambient ? `url(${ambient})` : undefined, opacity: ambient ? 1 : 0 }} aria-hidden="true" />
-      <header className={styles.header}><span className={styles.wordmark}>Tintker</span></header>
       <input ref={input} type="file" hidden accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
         onChange={event => {
           const file = event.currentTarget.files?.[0];
@@ -345,61 +391,89 @@ export default function ColourTool() {
                 onFocus={() => setActive(i)} onBlur={() => setActive(undefined)}
                 onClick={() => void copy(c.hex, `Copied ${c.hex}`)} />
             ))}
+            <button type="button" className={styles.copyAll} aria-label="Copy all colours" title="Copy all colours"
+              onClick={() => void copy(colours.map(c => c.hex).join(", "), "Copied all colours")}><Copy size={15} /></button>
+            {/* Shows once a colour has been moved: puts every pin back where Tintker found it. */}
+            {changed && <button type="button" className={styles.copyAll} aria-label="Reset colours" title="Reset colours"
+              onClick={() => { choose(photo, mode); say("Colours reset"); }}><RotateCcw size={15} /></button>}
+          </div>
+          <div className={styles.modes} role="group" aria-label="Which colours">
+            {(["Scene", "Accent"] as const).map(value => (
+              <button key={value} type="button" aria-pressed={mode === value} disabled={busy} title={MODE_HINT[value]}
+                onClick={() => { if (mode !== value) { setMode(value); choose(photo, value); say(MODE_HINT[value]); } }}>{value}</button>
+            ))}
           </div>
           <p className={styles.caption} role="status">{caption}</p>
 
-          {/* The dock: everything else, in plain words. */}
+          {/* The dock: only what you make from the colours. */}
           <div className={styles.dock}>
-            <div className={styles.modes} role="group" aria-label="Which colours">
-              {(["Scene", "Accent"] as const).map(value => (
-                <button key={value} type="button" aria-pressed={mode === value} disabled={busy} title={MODE_HINT[value]}
-                  onClick={() => { if (mode !== value) { setMode(value); choose(photo, value); say(MODE_HINT[value]); } }}>{value}</button>
-              ))}
-            </div>
-            <span className={styles.rule} aria-hidden="true" />
-            <div className={styles.kinds} role="group" aria-label="Gradient">
-              {(["mesh", "linear"] as const).map(value => (
+            <button type="button" className={styles.round} onClick={browse} aria-label="New image" title="New image"><ImagePlus size={17} /></button>
+            <div className={styles.pill} role="group" aria-label="Gradient">
+              {(["mesh", "linear", "radial"] as const).map(value => (
                 <button key={value} type="button" className={styles.kind} aria-pressed={kind === value}
-                  aria-label={value === "mesh" ? "Mesh gradient" : "Linear gradient"} title={KIND_HINT[value]}
+                  aria-label={`${KIND_LABEL[value]} gradient`} title={KIND_HINT[value]}
                   style={{ backgroundImage: previews ? `url(${previews[value]})` : undefined }}
                   onClick={() => { setKind(value); say(KIND_HINT[value]); }} />
               ))}
-              {kind === "linear" && <button type="button" className={styles.iconButton} aria-label="Shuffle the order" title="Shuffle the order"
-                onClick={() => setOrder(o => o + 1)}><Shuffle size={15} /></button>}
+              <button type="button" className={styles.iconButton} aria-label="Shuffle" title={kind === "mesh" ? "Shuffle where the colours glow" : kind === "radial" ? "Shuffle which colour is in the middle" : "Shuffle the order"}
+                onClick={() => setOrder(o => o + 1)}><Shuffle size={14} /></button>
+            </div>
+            <div className={styles.popWrap} ref={saveMenu}>
+              <button type="button" className={styles.round} aria-expanded={saveOpen} aria-haspopup="menu" aria-label="Save" title="Save"
+                onClick={() => setOpen(saveOpen ? null : "save")}><Download size={16} /></button>
+              <div className={styles.menu} role="menu" data-open={saveOpen} inert={!saveOpen}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- generated preview */}
+                {previews && <img className={styles.menuPreview} src={previews[peek ?? kind]} alt="" />}
+                <label className={styles.grain}>
+                  <span>Grain</span>
+                  <input type="range" min="0" max="100" value={grain} onChange={event => setGrain(event.currentTarget.valueAsNumber)} />
+                </label>
+                <div className={styles.formatRow}>
+                  <span>File type</span>
+                  <div className={styles.format} role="radiogroup" aria-label="File type">
+                    {(["png", "svg"] as const).map(value => (
+                      <button key={value} type="button" role="radio" aria-checked={format === value} onClick={() => chooseFormat(value)}>{value.toUpperCase()}</button>
+                    ))}
+                  </div>
+                </div>
+                {(["mesh", "linear", "radial"] as const).map(value => (
+                  <button key={value} type="button" role="menuitem" onClick={() => void downloadGradient(value)}
+                    onPointerEnter={() => setPeek(value)} onPointerLeave={() => setPeek(undefined)}
+                    onFocus={() => setPeek(value)} onBlur={() => setPeek(undefined)}>
+                    <ImageDown size={15} aria-hidden="true" />{KIND_LABEL[value]} gradient<Download size={13} aria-hidden="true" className={styles.trail} />
+                  </button>
+                ))}
+                <span className={styles.menuRule} aria-hidden="true" />
+                <button type="button" role="menuitem" onClick={() => {
+                  setOpen(null);
+                  const css = kind === "mesh" ? meshCss(meshColours) : kind === "linear" ? linearCss(linearColours) : radialCss(linearColours);
+                  void copy(`background: ${css};`, "Copied the CSS");
+                }}><Braces size={15} aria-hidden="true" />Copy CSS<small className={styles.trail}>{KIND_LABEL[kind]}</small></button>
+                <button type="button" role="menuitem" onClick={() => { setOpen(null); void copy(colours.map(c => c.hex).join(", "), "Copied the hex codes"); }}>
+                  <Hash size={15} aria-hidden="true" />Copy hex codes
+                </button>
+                <button type="button" role="menuitem" onClick={() => void saveCard()}><RectangleVertical size={15} aria-hidden="true" />Palette card</button>
+              </div>
             </div>
             <span className={styles.rule} aria-hidden="true" />
-            <button type="button" className={styles.iconButton} onClick={browse} aria-label="New image" title="New image"><ImagePlus size={16} /></button>
-            <div className={styles.saveWrap} ref={saveMenu}>
-              <button type="button" className={styles.save} aria-expanded={saveOpen} aria-haspopup="true" onClick={() => setSaveOpen(o => !o)}>
-                Save <ChevronDown size={14} aria-hidden="true" />
+            <div className={styles.popWrap} ref={meMenu}>
+              <button type="button" className={`${styles.round} ${styles.me}`} aria-expanded={open === "me"} aria-haspopup="menu"
+                aria-label="Who made this" title="Who made this" onClick={() => setOpen(open === "me" ? null : "me")}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- a small drawing */}
+                <img src="/diwyani.png" alt="" />
               </button>
-              {saveOpen && (
-                <div className={styles.menu} role="menu">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- generated preview */}
-                  {previews && <img className={styles.menuPreview} src={previews[kind]} alt="" />}
-                  <label className={styles.grain}>
-                    <span>Grain</span>
-                    <input type="range" min="0" max="100" value={grain} onChange={event => setGrain(event.currentTarget.valueAsNumber)} />
-                  </label>
-                  <button type="button" role="menuitem" onClick={() => void saveGradient()}>{kind === "mesh" ? "Mesh" : "Linear"} gradient <small>PNG</small></button>
-                  <button type="button" role="menuitem" onClick={() => void saveCard()}>Palette card <small>PNG</small></button>
-                  <button type="button" role="menuitem" onClick={() => { setSaveOpen(false); void copy(colours.map(c => c.hex).join(", "), "Copied all colours"); }}>Copy colours</button>
-                  {kind === "linear" && <>
-                    <button type="button" role="menuitem" onClick={() => { setSaveOpen(false); void copy(`background: ${linearCss(linearColours)};`, "Copied the CSS"); }}>Copy CSS</button>
-                    <button type="button" role="menuitem" onClick={() => {
-                      download(new Blob([linearSvg(linearColours, 1024, 1024)], { type: "image/svg+xml" }), `${slug(title)}-linear.svg`);
-                      setSaveOpen(false);
-                      say("Saved the SVG (no grain)");
-                    }}>Linear gradient <small>SVG</small></button>
-                  </>}
-                </div>
-              )}
+              <div className={`${styles.menu} ${styles.meMenu}`} role="menu" data-open={open === "me"} inert={open !== "me"}>
+                <p className={styles.meName}>Made by Diwyani</p>
+                <a role="menuitem" href="https://x.com/DiwyaniVajpayee" target="_blank" rel="noreferrer"><XIcon />Twitter</a>
+                <a role="menuitem" href="https://in.linkedin.com/in/diwyani-vajpayee-9b2270213" target="_blank" rel="noreferrer"><LinkedInIcon />LinkedIn</a>
+                {EMAIL && <a role="menuitem" href={`mailto:${EMAIL}`}><Mail size={12} aria-hidden="true" />Email</a>}
+              </div>
             </div>
           </div>
         </div>
       ) : (
         <section className={styles.drop} aria-label="Choose an image" aria-busy={busy}>
-          <ImagePlus size={26} aria-hidden="true" />
+          <ImagePlus size={22} aria-hidden="true" />
           <h1>Find the colours in a photo or film still</h1>
           <p>Drop an image anywhere, or choose one. It never leaves your browser.</p>
           <button type="button" className={styles.browse} onClick={browse} disabled={busy}>{busy ? "Reading…" : "Choose an image"}</button>
@@ -411,18 +485,13 @@ export default function ColourTool() {
       {error && <p className={styles.error} role="alert">{error}</p>}
 
       <footer className={styles.footer}>
-        <details>
-          <summary>Built by Diwyani</summary>
-          <div className={styles.footerPanel}>
-            <a href="https://in.linkedin.com/in/diwyani-vajpayee-9b2270213" target="_blank" rel="noreferrer">LinkedIn</a>
-            <a href="https://x.com/DiwyaniVajpayee" target="_blank" rel="noreferrer">Twitter</a>
-          </div>
-        </details>
+        <span className={styles.wordmark}>Tintker</span>
         <span aria-hidden="true">·</span>
         <details className={styles.credits}>
           <summary>Credits</summary>
           <div className={styles.footerPanel}>
             <p>iPhone photos (HEIC) are opened with <a href="https://github.com/hoppergee/heic-to" target="_blank" rel="noreferrer">heic-to</a> and <a href="https://github.com/strukturag/libheif" target="_blank" rel="noreferrer">libheif</a>, under the <a href="https://www.gnu.org/licenses/lgpl-3.0.html" target="_blank" rel="noreferrer">LGPL-3.0</a>.</p>
+            <p>Lettering in <a href="https://fonts.google.com/specimen/Homemade+Apple" target="_blank" rel="noreferrer">Homemade Apple</a> (Apache 2.0).</p>
             <p className={styles.quiet}>Built with Next.js and React (MIT).</p>
             <p className={styles.quiet}>© 2026 Diwyani Vajpayee. All rights reserved.</p>
           </div>

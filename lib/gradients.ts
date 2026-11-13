@@ -4,7 +4,7 @@
  * Mesh: each colour glows from where it sits in the image. Linear: bands top to bottom.
  */
 export type Colour = { hex: string; x: number; y: number; area: number };
-export type Kind = "mesh" | "linear";
+export type Kind = "mesh" | "linear" | "radial";
 type Lab = [number, number, number];
 
 const lin = (c: number) => (c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -73,23 +73,38 @@ export function bandStops(colours: Colour[]) {
   return weights.map(w => { const mid = (acc + w / 2) / total; acc += w; return mid; });
 }
 
+/** Every colour gets the same share: band middles evenly spaced. */
+export const equalStops = (n: number) => Array.from({ length: n }, (_, i) => (i + 0.5) / n);
+
+/** The colour at t (0–1) along bands centred at `mids`, blended in OKLab with a soft step. */
+function rampAt(labs: Lab[], mids: number[], t: number): Lab {
+  if (t <= mids[0]) return labs[0];
+  if (t >= mids[mids.length - 1]) return labs[labs.length - 1];
+  let k = 0;
+  while (k < mids.length - 2 && t > mids[k + 1]) k++;
+  let u = (t - mids[k]) / (mids[k + 1] - mids[k]);
+  u = u * u * (3 - 2 * u);
+  return labs[k].map((v, i) => v + (labs[k + 1][i] - v) * u) as Lab;
+}
+
 function drawLinear(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
   const labs = colours.map(c => labOfHex(c.hex)), mids = bandStops(colours);
   for (let y = 0; y < h; y++) {
-    const t = h > 1 ? y / (h - 1) : 0;
-    let col: Lab;
-    if (t <= mids[0]) col = labs[0];
-    else if (t >= mids[mids.length - 1]) col = labs[labs.length - 1];
-    else {
-      let k = 0;
-      while (k < mids.length - 2 && t > mids[k + 1]) k++;
-      let u = (t - mids[k]) / (mids[k + 1] - mids[k]);
-      u = u * u * (3 - 2 * u);
-      col = labs[k].map((v, i) => v + (labs[k + 1][i] - v) * u) as Lab;
-    }
-    ctx.fillStyle = `rgb(${rgbOf(col).join(",")})`;
+    ctx.fillStyle = `rgb(${rgbOf(rampAt(labs, mids, h > 1 ? y / (h - 1) : 0)).join(",")})`;
     ctx.fillRect(0, y, w, 1);
   }
+}
+
+/** Rings from the middle out, one equal ring per colour; the first colour is in the centre. */
+function drawRadial(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
+  const labs = colours.map(c => labOfHex(c.hex)), mids = equalStops(colours.length);
+  const steps = 512, ramp = Array.from({ length: steps }, (_, i) => rgbOf(rampAt(labs, mids, i / (steps - 1))));
+  const image = ctx.createImageData(w, h), d = image.data, cx = w / 2, cy = h / 2, reach = Math.hypot(cx, cy) * 0.92;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = ramp[Math.min(steps - 1, Math.round(Math.hypot(x - cx, y - cy) / reach * (steps - 1)))], o = (y * w + x) * 4;
+    d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
 }
 
 function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
@@ -126,6 +141,7 @@ export function renderGradient(kind: Kind, colours: Colour[], w: number, h: numb
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx || !colours.length) return canvas;
   if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours);
+  else if (kind === "radial") drawRadial(ctx, canvas.width, canvas.height, colours);
   else drawLinear(ctx, canvas.width, canvas.height, colours);
   addGrain(ctx, canvas.width, canvas.height, grain);
   return canvas;
@@ -140,4 +156,64 @@ export function linearSvg(colours: Colour[], w: number, h: number) {
   const mids = bandStops(colours);
   const stops = colours.map((c, i) => `<stop offset="${Math.round(mids[i] * 100)}%" stop-color="${c.hex}"/>`).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1" color-interpolation="linearRGB">${stops}</linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+}
+
+/**
+ * The mesh as SVG: each colour a soft radial glow where it sits in the photo, sized by how much it
+ * covers, over the colours' average. Soft even where blur and noise filters are ignored (Figma,
+ * Illustrator); browsers add the extra blur and the grain. Blends in RGB, so a little less clean than the PNG.
+ */
+export function meshSvg(colours: Colour[], w: number, h: number, grain: number) {
+  const long = Math.max(w, h), total = colours.reduce((s, c) => s + Math.max(c.area, 0.02), 0);
+  const avg = colours.reduce((acc, c) => {
+    const lab = labOfHex(c.hex), k = Math.max(c.area, 0.02) / total;
+    return acc.map((v, i) => v + lab[i] * k) as Lab;
+  }, [0, 0, 0] as Lab);
+  const base = hexOf(...rgbOf(avg));
+  // Big colours first, so small accents glow on top.
+  const order = [...colours].sort((a, b) => b.area - a.area);
+  const r2 = (v: number) => Math.round(v * 10) / 10;
+  const defs = order.map((c, i) => {
+    const r = long * (0.1 + Math.sqrt(Math.max(c.area, 0.02)) * 0.75);
+    return `<radialGradient id="c${i}" gradientUnits="userSpaceOnUse" cx="${r2(c.x * w)}" cy="${r2(c.y * h)}" r="${r2(r)}">`
+      + `<stop offset="0" stop-color="${c.hex}"/><stop offset=".4" stop-color="${c.hex}" stop-opacity=".7"/>`
+      + `<stop offset="1" stop-color="${c.hex}" stop-opacity="0"/></radialGradient>`;
+  }).join("");
+  const glows = order.map((_, i) => `<rect width="${w}" height="${h}" fill="url(#c${i})"/>`).join("");
+  const noise = grain > 0
+    ? `<filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>`
+      + `</defs><rect width="${w}" height="${h}" fill="${base}"/><g filter="url(#soft)">${glows}</g>`
+      + `<rect width="${w}" height="${h}" filter="url(#grain)" opacity="${r2(grain * 0.35 * 10) / 10}" style="mix-blend-mode:overlay"/>`
+    : `</defs><rect width="${w}" height="${h}" fill="${base}"/><g filter="url(#soft)">${glows}</g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs>${defs}`
+    + `<filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${r2(long / 30)}"/></filter>`
+    + `${noise}</svg>`;
+}
+
+/** The radial gradient as CSS and SVG (no grain): equal rings, the first colour in the centre. */
+export function radialCss(colours: Colour[]) {
+  const mids = equalStops(colours.length);
+  return `radial-gradient(circle farthest-corner, ${colours.map((c, i) => `${c.hex} ${Math.round(mids[i] * 92)}%`).join(", ")})`;
+}
+export function radialSvg(colours: Colour[], w: number, h: number) {
+  const mids = equalStops(colours.length), r = Math.hypot(w / 2, h / 2) * 0.92;
+  const stops = colours.map((c, i) => `<stop offset="${Math.round(mids[i] * 100)}%" stop-color="${c.hex}"/>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="${w / 2}" cy="${h / 2}" r="${Math.round(r)}">${stops}</radialGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
+}
+
+/**
+ * The mesh as CSS: one soft radial glow per colour at its spot (small colours on top), over the
+ * colours' average. Close to the PNG, smoother, no grain.
+ */
+export function meshCss(colours: Colour[]) {
+  const total = colours.reduce((sum, c) => sum + Math.max(c.area, 0.02), 0);
+  const avg = colours.reduce((acc, c) => {
+    const lab = labOfHex(c.hex), k = Math.max(c.area, 0.02) / total;
+    return acc.map((v, i) => v + lab[i] * k) as Lab;
+  }, [0, 0, 0] as Lab);
+  const glows = [...colours].sort((a, b) => a.area - b.area).map(c => {
+    const r = Math.round(10 + Math.sqrt(Math.max(c.area, 0.02)) * 75);
+    return `radial-gradient(circle at ${Math.round(c.x * 100)}% ${Math.round(c.y * 100)}%, ${c.hex} 0%, ${c.hex}b3 ${Math.round(r * 0.4)}%, ${c.hex}00 ${r}%)`;
+  });
+  return [...glows, hexOf(...rgbOf(avg))].join(", ");
 }

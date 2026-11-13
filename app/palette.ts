@@ -50,7 +50,7 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
     const supported = ranked.filter(candidate => candidate.count >= Math.max(3, opaque * 0.001));
     const candidates = supported.length ? supported : ranked;
 
-    while (chosen.length < 5) {
+    while (chosen.length < 6) {
       let best: Candidate | undefined;
       let bestScore = -Infinity;
       for (const candidate of candidates) {
@@ -88,7 +88,7 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
   return { Scene: select(false).map(swatch), Accent: select(true).map(swatch) };
 }
 
-/** Rank paths through the extracted palette. With five swatches there are at most 120 orders. */
+/** Rank paths through the extracted palette. With six swatches there are at most 720 orders. */
 export function gradientOrders(hexes: string[]) {
   const colours = hexes.map(hex => lab(
     parseInt(hex.slice(1, 3), 16),
