@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "cuelume": "^0.2.8",
     "heic-to": "^1.6.6",
     "lucide-react": "^1.56.0",
     "next": "16.3.6",

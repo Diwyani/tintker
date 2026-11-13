@@ -1,28 +1,17 @@
-export type Swatch = { hex: string; x: number; y: number };
-type Colour = [number, number, number];
+import { hexOfLab, labOf, labOfHex, type Lab } from "@/lib/color";
 
-function lab(r: number, g: number, b: number): Colour {
-  const linear = (channel: number) => channel <= 10.31475
-    ? channel / 3294.6 : ((channel / 255 + 0.055) / 1.055) ** 2.4;
-  [r, g, b] = [linear(r), linear(g), linear(b)];
-  const l = Math.cbrt(0.412221 * r + 0.536333 * g + 0.051446 * b);
-  const m = Math.cbrt(0.211903 * r + 0.680700 * g + 0.107397 * b);
-  const s = Math.cbrt(0.088302 * r + 0.281719 * g + 0.629979 * b);
-  return [
-    0.210454 * l + 0.793618 * m - 0.004072 * s,
-    1.977998 * l - 2.428592 * m + 0.450594 * s,
-    0.025904 * l + 0.782772 * m - 0.808676 * s,
-  ];
-}
+export type Swatch = { hex: string; x: number; y: number; lab: Lab };
+type Colour = Lab;
 
-export function extractPalettes(data: Uint8ClampedArray, width: number, height: number) {
+/** `p3`: the pixels come from a Display P3 canvas. */
+export function extractPalettes(data: Uint8ClampedArray, width: number, height: number, p3 = false) {
   type Bucket = { sum: Colour; samples: { colour: Colour; offset: number }[] };
   const buckets = new Map<string, Bucket>();
   let opaque = 0;
   for (let offset = 0; offset < data.length; offset += 4) {
     if (data[offset + 3] < 128) continue;
     opaque++;
-    const colour = lab(data[offset], data[offset + 1], data[offset + 2]);
+    const colour = labOf(data[offset], data[offset + 1], data[offset + 2], p3);
     const key = colour.map((value, axis) => Math.round(value / (axis === 0 ? 0.08 : 0.035))).join("/");
     const bucket = buckets.get(key);
     if (bucket) {
@@ -79,10 +68,9 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
     return chosen;
   }
 
-  function swatch({ offset }: typeof ranked[number]): Swatch {
+  function swatch({ offset, colour }: typeof ranked[number]): Swatch {
     const pixel = offset / 4;
-    const hex = Array.from(data.slice(offset, offset + 3), value => value.toString(16).padStart(2, "0")).join("");
-    return { hex: "#" + hex.toUpperCase(), x: (pixel % width + 0.5) / width, y: (Math.floor(pixel / width) + 0.5) / height };
+    return { hex: hexOfLab(colour), lab: colour, x: (pixel % width + 0.5) / width, y: (Math.floor(pixel / width) + 0.5) / height };
   }
 
   return { Scene: select(false).map(swatch), Accent: select(true).map(swatch) };
@@ -90,11 +78,7 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
 
 /** Rank paths through the extracted palette. With six swatches there are at most 720 orders. */
 export function gradientOrders(hexes: string[]) {
-  const colours = hexes.map(hex => lab(
-    parseInt(hex.slice(1, 3), 16),
-    parseInt(hex.slice(3, 5), 16),
-    parseInt(hex.slice(5, 7), 16),
-  ));
+  const colours = hexes.map(labOfHex);
   const paths: { colours: string[]; cost: number; ascending: boolean }[] = [];
 
   function visit(path: number[], remaining: number[], cost: number) {

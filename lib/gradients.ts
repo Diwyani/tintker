@@ -1,48 +1,24 @@
+import { bytesOf, cssOf, ctx2d, hexOfLab, labOf, wideColor, type Lab } from "./color";
+
 /**
  * Gradients from a palette. Colours are blended in OKLab (so blue into orange stays bright, not grey),
  * weighted by how much of the image each covers, with optional film grain.
  * Mesh: each colour glows from where it sits in the image. Linear: bands top to bottom.
  */
-export type Colour = { hex: string; x: number; y: number; area: number };
+export type Colour = { hex: string; x: number; y: number; area: number; lab: Lab };
 export type Kind = "mesh" | "linear" | "radial";
-type Lab = [number, number, number];
-
-const lin = (c: number) => (c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-const gam = (c: number) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-
-export function labOf(r: number, g: number, b: number): Lab {
-  r = lin(r); g = lin(g); b = lin(b);
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
-}
-
-function rgbOf([L, a, b]: Lab): Lab {
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
-  ].map(v => Math.max(0, Math.min(255, gam(Math.max(0, v))))) as Lab;
-}
-
-export const hexOf = (r: number, g: number, b: number) =>
-  "#" + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase();
-const labOfHex = (hex: string) => labOf(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16));
+export { hexOf } from "./color";
 
 /** Every pixel of an image in OKLab, three numbers per pixel. */
-export function labsOf(data: Uint8ClampedArray) {
+export function labsOf(data: Uint8ClampedArray, p3 = false) {
   const out = new Float32Array(data.length / 4 * 3);
-  for (let i = 0, j = 0; i < data.length; i += 4, j += 3) out.set(labOf(data[i], data[i + 1], data[i + 2]), j);
+  for (let i = 0, j = 0; i < data.length; i += 4, j += 3) out.set(labOf(data[i], data[i + 1], data[i + 2], p3), j);
   return out;
 }
 
 /** How much of the image each colour covers: the share of pixels nearest to it. */
-export function sharesOf(labs: Float32Array, hexes: string[]) {
-  const centres = hexes.map(labOfHex), counts = hexes.map(() => 0);
+export function sharesOf(labs: Float32Array, centres: Lab[]) {
+  const counts = centres.map(() => 0);
   for (let j = 0; j < labs.length; j += 3) {
     let best = 0, bestD = Infinity;
     for (let k = 0; k < centres.length; k++) {
@@ -88,17 +64,17 @@ function rampAt(labs: Lab[], mids: number[], t: number): Lab {
 }
 
 function drawLinear(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
-  const labs = colours.map(c => labOfHex(c.hex)), mids = bandStops(colours);
+  const labs = colours.map(c => c.lab), mids = bandStops(colours);
   for (let y = 0; y < h; y++) {
-    ctx.fillStyle = `rgb(${rgbOf(rampAt(labs, mids, h > 1 ? y / (h - 1) : 0)).join(",")})`;
+    ctx.fillStyle = cssOf(rampAt(labs, mids, h > 1 ? y / (h - 1) : 0));
     ctx.fillRect(0, y, w, 1);
   }
 }
 
 /** Rings from the middle out, one equal ring per colour; the first colour is in the centre. */
 function drawRadial(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
-  const labs = colours.map(c => labOfHex(c.hex)), mids = equalStops(colours.length);
-  const steps = 512, ramp = Array.from({ length: steps }, (_, i) => rgbOf(rampAt(labs, mids, i / (steps - 1))));
+  const labs = colours.map(c => c.lab), mids = equalStops(colours.length), p3 = wideColor();
+  const steps = 512, ramp = Array.from({ length: steps }, (_, i) => bytesOf(rampAt(labs, mids, i / (steps - 1)), p3));
   const image = ctx.createImageData(w, h), d = image.data, cx = w / 2, cy = h / 2, reach = Math.hypot(cx, cy) * 0.92;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const c = ramp[Math.min(steps - 1, Math.round(Math.hypot(x - cx, y - cy) / reach * (steps - 1)))], o = (y * w + x) * 4;
@@ -111,8 +87,8 @@ function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: 
   const long = Math.max(w, h), sw = Math.max(8, Math.round(40 * w / long)), sh = Math.max(8, Math.round(40 * h / long));
   const small = document.createElement("canvas");
   small.width = sw; small.height = sh;
-  const sctx = small.getContext("2d")!, image = sctx.createImageData(sw, sh);
-  const labs = colours.map(c => labOfHex(c.hex)), sig = 0.18, ax = w / long, ay = h / long;
+  const sctx = ctx2d(small), image = sctx.createImageData(sw, sh);
+  const labs = colours.map(c => c.lab), p3 = wideColor(), sig = 0.13, ax = w / long, ay = h / long;
   for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
     const u = i / (sw - 1), v = j / (sh - 1), acc = [0, 0, 0];
     let total = 0;
@@ -122,13 +98,13 @@ function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: 
       total += wt;
       for (let a = 0; a < 3; a++) acc[a] += labs[k][a] * wt;
     });
-    const rgb = rgbOf(acc.map(a => a / total) as Lab), o = (j * sw + i) * 4;
+    const rgb = bytesOf(acc.map(a => a / total) as Lab, p3), o = (j * sw + i) * 4;
     image.data[o] = rgb[0]; image.data[o + 1] = rgb[1]; image.data[o + 2] = rgb[2]; image.data[o + 3] = 255;
   }
   sctx.putImageData(image, 0, 0);
   const margin = long / 8;
   ctx.imageSmoothingQuality = "high";
-  ctx.filter = `blur(${long / 20}px)`;
+  ctx.filter = `blur(${long / 28}px)`;
   ctx.drawImage(small, -margin, -margin, w + margin * 2, h + margin * 2);
   ctx.filter = "none";
 }
@@ -138,7 +114,7 @@ export function renderGradient(kind: Kind, colours: Colour[], w: number, h: numb
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(w));
   canvas.height = Math.max(1, Math.round(h));
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const ctx = ctx2d(canvas, { willReadFrequently: true });
   if (!ctx || !colours.length) return canvas;
   if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours);
   else if (kind === "radial") drawRadial(ctx, canvas.width, canvas.height, colours);
@@ -166,10 +142,10 @@ export function linearSvg(colours: Colour[], w: number, h: number) {
 export function meshSvg(colours: Colour[], w: number, h: number, grain: number) {
   const long = Math.max(w, h), total = colours.reduce((s, c) => s + Math.max(c.area, 0.02), 0);
   const avg = colours.reduce((acc, c) => {
-    const lab = labOfHex(c.hex), k = Math.max(c.area, 0.02) / total;
+    const lab = c.lab, k = Math.max(c.area, 0.02) / total;
     return acc.map((v, i) => v + lab[i] * k) as Lab;
   }, [0, 0, 0] as Lab);
-  const base = hexOf(...rgbOf(avg));
+  const base = hexOfLab(avg);
   // Big colours first, so small accents glow on top.
   const order = [...colours].sort((a, b) => b.area - a.area);
   const r2 = (v: number) => Math.round(v * 10) / 10;
@@ -208,12 +184,12 @@ export function radialSvg(colours: Colour[], w: number, h: number) {
 export function meshCss(colours: Colour[]) {
   const total = colours.reduce((sum, c) => sum + Math.max(c.area, 0.02), 0);
   const avg = colours.reduce((acc, c) => {
-    const lab = labOfHex(c.hex), k = Math.max(c.area, 0.02) / total;
+    const lab = c.lab, k = Math.max(c.area, 0.02) / total;
     return acc.map((v, i) => v + lab[i] * k) as Lab;
   }, [0, 0, 0] as Lab);
   const glows = [...colours].sort((a, b) => a.area - b.area).map(c => {
     const r = Math.round(10 + Math.sqrt(Math.max(c.area, 0.02)) * 75);
     return `radial-gradient(circle at ${Math.round(c.x * 100)}% ${Math.round(c.y * 100)}%, ${c.hex} 0%, ${c.hex}b3 ${Math.round(r * 0.4)}%, ${c.hex}00 ${r}%)`;
   });
-  return [...glows, hexOf(...rgbOf(avg))].join(", ");
+  return [...glows, hexOfLab(avg)].join(", ");
 }

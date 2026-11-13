@@ -1,16 +1,18 @@
 "use client";
 
 import { Braces, Copy, Download, Hash, ImageDown, ImagePlus, Mail, RectangleVertical, RotateCcw, Shuffle } from "lucide-react";
+import { play } from "cuelume";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { looksLikeHeic } from "@/lib/heic";
-import { hexOf, labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
+import { labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
+import { chromaOf, cssOf, ctx2d, hexOfLab, labOf, type Lab } from "@/lib/color";
 import { extractPalettes, gradientOrders } from "./palette";
 import styles from "./tool.module.css";
 
 type Mode = keyof ReturnType<typeof extractPalettes>;
-type Swatch = { hex: string; x: number; y: number };
+type Swatch = { hex: string; x: number; y: number; lab: Lab };
 type Photo = {
-  pixels: ImageData; labs: Float32Array; name: string; src: string;
+  pixels: ImageData; labs: Float32Array; name: string; src: string; p3: boolean;
   width: number; height: number; palettes: ReturnType<typeof extractPalettes>;
 };
 
@@ -54,7 +56,7 @@ function draw(bitmap: ImageBitmap, maxSide: number) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const context = ctx2d(canvas, { willReadFrequently: true });
   if (!context) throw new Error("Canvas is unavailable.");
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   return { canvas, context };
@@ -81,17 +83,21 @@ function titleOf(name: string) {
 
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tintker";
 
-/** The average colour of a small patch of the image around a point (0–1). */
-function sampleAt({ data, width, height }: ImageData, x: number, y: number): Swatch {
-  const cx = Math.round(x * (width - 1)), cy = Math.round(y * (height - 1));
-  let r = 0, g = 0, b = 0, n = 0;
+/**
+ * The colour under a point (0–1): of the 5 × 5 pixels around it, the more colourful half, averaged.
+ * Averaging all of them would dull the colour wherever the pin sits near an edge; one pixel is noisy.
+ */
+function sampleAt({ data, width, height }: ImageData, p3: boolean, x: number, y: number): Swatch {
+  const cx = Math.round(x * (width - 1)), cy = Math.round(y * (height - 1)), patch: Lab[] = [];
   for (let j = Math.max(0, cy - 2); j <= Math.min(height - 1, cy + 2); j++) {
     for (let i = Math.max(0, cx - 2); i <= Math.min(width - 1, cx + 2); i++) {
       const o = (j * width + i) * 4;
-      r += data[o]; g += data[o + 1]; b += data[o + 2]; n++;
+      patch.push(labOf(data[o], data[o + 1], data[o + 2], p3));
     }
   }
-  return { hex: hexOf(r / n, g / n, b / n), x, y };
+  const best = patch.sort((a, b) => chromaOf(b) - chromaOf(a)).slice(0, Math.ceil(patch.length / 2));
+  const lab = best.reduce((acc, c) => acc.map((v, i) => v + c[i] / best.length) as Lab, [0, 0, 0] as Lab);
+  return { hex: hexOfLab(lab), lab, x, y };
 }
 
 /**
@@ -106,7 +112,7 @@ async function drawCard(src: string, colours: Colour[], title: string) {
   await image.decode();
   const W = 1080, H = 1350, pad = 64, canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  const ctx = ctx2d(canvas, { willReadFrequently: true });
   ctx.fillStyle = "#F6F3EA";
   ctx.fillRect(0, 0, W, H);
   // The photo, cropped to fill its window.
@@ -117,7 +123,7 @@ async function drawCard(src: string, colours: Colour[], title: string) {
   // The palette, printed as the caption.
   const top = pad + ih + 28, bandH = 160, bw = iw / colours.length;
   colours.forEach((c, i) => {
-    ctx.fillStyle = c.hex;
+    ctx.fillStyle = cssOf(c.lab);
     ctx.fillRect(Math.round(pad + i * bw), top, Math.ceil(bw), bandH);
     ctx.fillStyle = "#8A867C";
     ctx.font = "500 21px ui-monospace, Menlo, monospace";
@@ -174,6 +180,8 @@ export default function ColourTool() {
   const src = photo?.src;
 
   useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
+  // Sounds (cuelume, made live with Web Audio, no files): a tick on copy, a chime on save. Quiet.
+  useEffect(() => { document.documentElement.dataset.cuelumeEmphasis = "subtle"; }, []);
   useEffect(() => () => { request.current++; cancelAnimationFrame(frame.current); clearTimeout(noteTimer.current); }, []);
 
   // A popover closes on Escape or a click outside it.
@@ -190,7 +198,7 @@ export default function ColourTool() {
   /** The palette with each colour's share of the image. */
   const colours: Colour[] = useMemo(() => {
     if (!photo || !picks.length) return [];
-    const shares = sharesOf(photo.labs, picks.map(p => p.hex));
+    const shares = sharesOf(photo.labs, picks.map(p => p.lab));
     return picks.map((p, i) => ({ ...p, area: shares[i] }));
   }, [photo, picks]);
 
@@ -230,7 +238,7 @@ export default function ColourTool() {
   }
 
   function choose(next: Photo, nextMode: Mode) {
-    setPicks(next.palettes[nextMode].map(({ hex, x, y }) => ({ hex, x, y })));
+    setPicks(next.palettes[nextMode].map(({ hex, x, y, lab }) => ({ hex, x, y, lab })));
     setOrder(0);
     setActive(undefined);
   }
@@ -245,15 +253,17 @@ export default function ColourTool() {
       }
       const bitmap = await decode(file);
       try {
-        const { canvas, context } = draw(bitmap, 256);
+        // Colours are read from a small copy (384 px): fast, and still big enough to keep small accents.
+        const { canvas, context } = draw(bitmap, 384);
         const { width, height } = canvas;
         const pixels = context.getImageData(0, 0, width, height);
-        const palettes = extractPalettes(pixels.data, width, height);
+        const p3 = pixels.colorSpace === "display-p3";
+        const palettes = extractPalettes(pixels.data, width, height, p3);
         if (!palettes.Scene.length) throw new Error("This image has no opaque colours to sample.");
         const preview = draw(bitmap, 2200).canvas;
         const blob = await encode(preview, file.type === "image/png" || /\.png$/i.test(file.name) ? "image/png" : "image/jpeg");
         if (id !== request.current) return;
-        const next = { name: file.name, src: URL.createObjectURL(blob), width, height, pixels, labs: labsOf(pixels.data), palettes };
+        const next = { name: file.name, src: URL.createObjectURL(blob), width, height, pixels, p3, labs: labsOf(pixels.data, p3), palettes };
         setPhoto(next);
         setTitle(titleOf(file.name));
         choose(next, mode);
@@ -271,6 +281,7 @@ export default function ColourTool() {
   async function copy(value: string, message: string) {
     try {
       await navigator.clipboard.writeText(value);
+      play("select");
       say(message);
     } catch {
       say("Your browser didn’t allow copying");
@@ -280,7 +291,7 @@ export default function ColourTool() {
   /** Moves a pin and takes the colour under it. */
   function movePin(index: number, x: number, y: number) {
     if (!photo) return;
-    const point = sampleAt(photo.pixels, Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)));
+    const point = sampleAt(photo.pixels, photo.p3, Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)));
     setPicks(previous => previous.map((p, i) => i === index ? point : p));
   }
 
@@ -292,6 +303,7 @@ export default function ColourTool() {
       const long = 2048, w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
       download(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}.png`);
       setOpen(null);
+      play("success");
       say(`Saved the ${which} gradient`);
       return;
     }
@@ -299,6 +311,7 @@ export default function ColourTool() {
     const svg = which === "mesh" ? meshSvg(ordered, w, h, grain / 100) : which === "radial" ? radialSvg(ordered, w, h) : linearSvg(ordered, w, h);
     download(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}.svg`);
     setOpen(null);
+    play("success");
     say(which === "mesh" ? "Saved the SVG (grain shows in browsers only)" : "Saved the SVG (no grain)");
   }
 
@@ -307,6 +320,7 @@ export default function ColourTool() {
     const canvas = await drawCard(photo.src, colours, title);
     download(await encode(canvas, "image/png"), `${slug(title)}-card.png`);
     setSaveOpen(false);
+    play("success");
     say("Saved the card");
   }
 
@@ -354,7 +368,7 @@ export default function ColourTool() {
             <img src={photo.src} alt="" draggable={false} />
             {picks.map((p, i) => (
               <button key={i} type="button" className={styles.pin} data-active={active === i}
-                style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, background: p.hex }}
+                style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, background: cssOf(p.lab) }}
                 aria-label={`Colour ${i + 1}, ${p.hex}. Drag or use arrow keys to pick another colour`}
                 onPointerEnter={() => setActive(i)} onPointerLeave={() => { if (!held.current) setActive(undefined); }}
                 onFocus={() => setActive(i)} onBlur={() => setActive(undefined)}
@@ -385,7 +399,7 @@ export default function ColourTool() {
 
           <div className={styles.dots} role="group" aria-label="Colours">
             {colours.map((c, i) => (
-              <button key={i} type="button" className={styles.dot} data-active={active === i} style={{ background: c.hex }}
+              <button key={i} type="button" className={styles.dot} data-active={active === i} style={{ background: cssOf(c.lab) }}
                 aria-label={`Copy ${c.hex}, ${Math.max(1, Math.round(c.area * 100))}% of the photo`}
                 onPointerEnter={() => setActive(i)} onPointerLeave={() => setActive(undefined)}
                 onFocus={() => setActive(i)} onBlur={() => setActive(undefined)}
@@ -499,6 +513,7 @@ export default function ColourTool() {
           <summary>Credits</summary>
           <div className={styles.footerPanel}>
             <p>iPhone photos (HEIC) are opened with <a href="https://github.com/hoppergee/heic-to" target="_blank" rel="noreferrer">heic-to</a> and <a href="https://github.com/strukturag/libheif" target="_blank" rel="noreferrer">libheif</a>, under the <a href="https://www.gnu.org/licenses/lgpl-3.0.html" target="_blank" rel="noreferrer">LGPL-3.0</a>.</p>
+            <p>Sounds by <a href="https://cuelume.dev" target="_blank" rel="noreferrer">cuelume</a>, Daniel Belyi (MIT).</p>
             <p>Lettering in <a href="https://fonts.google.com/specimen/Homemade+Apple" target="_blank" rel="noreferrer">Homemade Apple</a> (Apache 2.0).</p>
             <p className={styles.quiet}>Built with Next.js and React (MIT).</p>
             <p className={styles.quiet}>© 2026 Diwyani Vajpayee. All rights reserved.</p>

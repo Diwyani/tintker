@@ -28,7 +28,7 @@ Then open http://localhost:3000.
 
 ## Built with
 
-Next.js and React. iPhone photos are opened with [heic-to](https://github.com/hoppergee/heic-to) and [libheif](https://github.com/strukturag/libheif) (LGPL-3.0). Icons are from [Lucide](https://lucide.dev).
+Next.js and React. iPhone photos are opened with [heic-to](https://github.com/hoppergee/heic-to) and [libheif](https://github.com/strukturag/libheif) (LGPL-3.0). Icons are from [Lucide](https://lucide.dev). Sounds by [cuelume](https://cuelume.dev) (MIT).
 
 ## Made by
 
