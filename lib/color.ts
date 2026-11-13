@@ -73,14 +73,20 @@ function fit(lab: Lab, p3: boolean): Lab {
   return out.map(c => Math.min(1, Math.max(0, c))) as Lab;
 }
 
-/** 0–255 bytes for writing pixels into a canvas (P3 bytes when `p3`). */
-export const bytesOf = (lab: Lab, p3 = false) => fit(lab, p3).map(gam) as Lab;
+/**
+ * 0–255 bytes for gradient pixels (P3 bytes when `p3`). Channels are simply clamped, as before the
+ * P3 change: lowering chroma here would grey out the blends between colours and show as rings.
+ */
+export function bytesOf(lab: Lab, p3 = false) {
+  const s = linearOfLab(lab), v = p3 ? srgbToP3(s) : s;
+  return v.map(c => gam(Math.min(1, Math.max(0, c)))) as Lab;
+}
 
 export const hexOf = (r: number, g: number, b: number) =>
   "#" + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase();
 
 /** The sRGB hex code: the nearest a hex can get to the colour. */
-export const hexOfLab = (lab: Lab) => hexOf(...bytesOf(lab));
+export const hexOfLab = (lab: Lab) => hexOf(...(fit(lab, false).map(gam) as Lab));
 export const labOfHex = (hex: string) => labOf(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16));
 
 /** A colour for CSS or a canvas fillStyle: Display P3 where the browser has it, else the hex. */

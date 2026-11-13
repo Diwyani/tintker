@@ -38,7 +38,7 @@ const KIND_LABEL: Record<Kind, string> = { mesh: "Mesh", linear: "Linear", radia
 const KIND_HINT: Record<Kind, string> = {
   radial: "Radial: rings from the middle out, every colour the same width",
   mesh: "Mesh: each colour glows from where it is in the photo",
-  linear: "Linear: bands sized by how much each colour covers",
+  linear: "Linear: every colour the same width, at a slight angle",
 };
 
 async function decode(file: File) {
@@ -488,12 +488,16 @@ export default function ColourTool() {
       ) : (
         <section className={styles.drop} aria-label="Choose an image" aria-busy={busy}>
           <div className={styles.dropBox}>
-          <svg className={styles.sketch} viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
-            <filter id="pencil"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" result="t" /><feDisplacementMap in="SourceGraphic" in2="t" scale="2.5" /></filter>
-            <g filter="url(#pencil)">
-              <path strokeWidth="1.3" d="M-8 14C300 10 650 18 1008 11M988-6C992 200 985 420 991 608M1006 588C700 592 300 584-6 590M12 606C8 400 15 200 9-8" />
-              <path className={styles.soft} strokeWidth="0.9" d="M6 9C350 15 700 7 996 16M993 8C989 250 995 450 987 596M990 584C650 589 320 581 10 587M7 590C12 380 6 180 14 10" />
-            </g>
+          {/* A dashed outline drawn like pencil: wobbly edges, grainy strokes. */}
+          <svg className={styles.sketch} aria-hidden="true">
+            <filter id="pencil" x="-5%" y="-5%" width="110%" height="110%">
+              <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="3" result="wobble" />
+              <feDisplacementMap in="SourceGraphic" in2="wobble" scale="2.2" result="drawn" />
+              <feTurbulence type="fractalNoise" baseFrequency="2.2" seed="8" result="grain" />
+              <feColorMatrix in="grain" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.8 -.4" result="tooth" />
+              <feComposite in="drawn" in2="tooth" operator="in" />
+            </filter>
+            <rect filter="url(#pencil)" />
           </svg>
           <ImagePlus className={styles.dropIcon} size={22} aria-hidden="true" />
           <h1>Find the colours in a photo or film still</h1>

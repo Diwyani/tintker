@@ -13,7 +13,7 @@ Drop in an image, and Tintker finds its colours. Move the sample point to pick y
 - **Opens JPEG, PNG, WebP and iPhone photos (HEIC).** Choose a file, or drop one anywhere on the page.
 - **Two ways to read a picture.** **Scene** gives the colours that fill the frame; **Accent** the ones that stand out, even small ones. Each colour shows how much of the image it covers.
 - **Pick by hand.** Every colour is a pin on the photo. Drag a pin, or use the arrow keys, and it takes the colour under it.
-- **Two gradients.** **Mesh**: each colour glows from where it is in the photo (best for a single frame). **Linear**: bands sized by how much each colour covers (best for collages), with Shuffle. Both blend in OKLab, so colours stay bright, and have adjustable film grain.
+- **Three gradients.** **Mesh**: each colour glows from where it is in the photo (best for a single frame). **Linear**: every colour the same width at a slight angle, with Shuffle. **Radial**: rings from the middle out. All blend in OKLab, so colours stay bright, and have adjustable film grain.
 - **Export** the gradient as PNG (linear also as SVG or CSS), a palette card (the image, its colours and their hex codes) for sharing, or copy the hex codes.
 - **Private.** The image never leaves your device.
 
