@@ -473,11 +473,19 @@ export default function ColourTool() {
         </div>
       ) : (
         <section className={styles.drop} aria-label="Choose an image" aria-busy={busy}>
-          <ImagePlus size={22} aria-hidden="true" />
+          <div className={styles.dropBox}>
+          <svg className={styles.sketch} viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
+            <filter id="pencil"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" result="t" /><feDisplacementMap in="SourceGraphic" in2="t" scale="2.5" /></filter>
+            <g filter="url(#pencil)">
+              <path strokeWidth="1.3" d="M-8 14C300 10 650 18 1008 11M988-6C992 200 985 420 991 608M1006 588C700 592 300 584-6 590M12 606C8 400 15 200 9-8" />
+              <path className={styles.soft} strokeWidth="0.9" d="M6 9C350 15 700 7 996 16M993 8C989 250 995 450 987 596M990 584C650 589 320 581 10 587M7 590C12 380 6 180 14 10" />
+            </g>
+          </svg>
+          <ImagePlus className={styles.dropIcon} size={22} aria-hidden="true" />
           <h1>Find the colours in a photo or film still</h1>
-          <p>Drop an image anywhere, or choose one. It never leaves your browser.</p>
+          <p>Drop an image anywhere</p>
           <button type="button" className={styles.browse} onClick={browse} disabled={busy}>{busy ? "Reading…" : "Choose an image"}</button>
-          <small>JPEG · PNG · HEIC</small>
+          </div>
         </section>
       )}
 
@@ -485,7 +493,7 @@ export default function ColourTool() {
       {error && <p className={styles.error} role="alert">{error}</p>}
 
       <footer className={styles.footer}>
-        <span className={styles.wordmark}>Tintker</span>
+        <a className={styles.wordmark} href="https://github.com/Diwyani/tintker" target="_blank" rel="noreferrer" title="Tintker on GitHub">Tintker</a>
         <span aria-hidden="true">·</span>
         <details className={styles.credits}>
           <summary>Credits</summary>

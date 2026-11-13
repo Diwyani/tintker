@@ -8,3 +8,9 @@ img, svg, canvas, video { display: block; max-width: 100%; }
 ol, ul, menu { list-style: none; }
 summary { list-style: none; }
 a { color: inherit; }
+
+/* Faint film grain over the whole page; never catches clicks. */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: .045;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3e%3cfilter id='n'%3e%3cfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3e%3cfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -.2'/%3e%3c/filter%3e%3crect width='100%25' height='100%25' filter='url(%23n)'/%3e%3c/svg%3e");
+}

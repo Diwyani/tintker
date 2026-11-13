@@ -217,11 +217,11 @@
 
 /* Empty state */
 /* Empty state: one even rhythm, with a little more air before the button. */
-.drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; min-height: 100svh; padding: 1rem 1rem 4rem; box-sizing: border-box; text-align: center; }
-.drop > svg { margin-bottom: .25rem; color: var(--muted); }
+.drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; min-height: 100svh; padding: 1rem; box-sizing: border-box; text-align: center; }
+.dropIcon { margin-bottom: .25rem; color: var(--muted); }
 .drop h1 { font-size: clamp(1.1rem, 2vw, 1.3rem); font-weight: 600; letter-spacing: -.01em; }
+.dropBox { display: flex; flex-direction: column; align-items: center; gap: .6rem; width: min(44rem, 100%); box-sizing: border-box; padding: clamp(5rem, 18vh, 10rem) 1.5rem; position: relative; }
 .drop p { color: var(--muted); max-width: 24rem; font-size: 13.5px; }
-.drop small { color: var(--muted); font-size: 11.5px; }
 .browse { margin: .6rem 0 .15rem; padding: .6rem 1.1rem; border-radius: 999px; background: var(--ink); color: #161716; font-weight: 500; }
 
 .dragOverlay { position: fixed; inset: 0; display: grid; place-items: center; background: #171918e8; border: 2px dashed #888; font-size: 18px; pointer-events: none; z-index: 6; }
@@ -230,7 +230,7 @@
 /* Footer: Tintker and Credits, quiet, bottom right */
 .footer {
   position: fixed;
-  right: clamp(.75rem, 3vw, 2rem);
+  right: 48px;
   bottom: .85rem;
   display: flex;
   align-items: center;
@@ -241,7 +241,13 @@
   z-index: 3;
 }
 .footer:hover, .footer:focus-within { opacity: 1; }
-.wordmark { font: 400 13px/1 var(--font-hand), cursive; color: var(--ink); translate: 0 2px; }
+.wordmark { font: 400 13px/1 var(--font-hand), cursive; color: var(--ink); translate: 0 2px; text-decoration: none; padding: .35em .3em; margin: -.35em -.3em; }
+.wordmark:hover, .wordmark:focus-visible {
+  color: transparent;
+  background: linear-gradient(125deg, #c2307f, #f26b5b 50%, #f9c66a);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
 .footer details { position: relative; }
 .footer summary { cursor: pointer; list-style: none; transition: color .15s ease; }
 .footer summary::-webkit-details-marker { display: none; }
@@ -284,3 +290,8 @@
   .menu, .menu[data-open="true"] { scale: 1; translate: 0 0; }
   .dot:hover, .dot:active, .round:active, .save:active { scale: 1; }
 }
+
+/* Pencil frame on the empty screen: hand-drawn lines, two passes per side, roughened edges. */
+.sketch { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; overflow: visible; pointer-events: none; color: #fff; opacity: .2; }
+.sketch path { fill: none; stroke: currentColor; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.sketch .soft { opacity: .55; }
