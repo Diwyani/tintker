@@ -39,7 +39,19 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
     const supported = ranked.filter(candidate => candidate.count >= Math.max(3, opaque * 0.001));
     const candidates = supported.length ? supported : ranked;
 
+    // Accent always keeps the most vivid colour in the picture (colourful and light: the yellow, the neon),
+    // second after the main colour, so a bright accent is never crowded out.
+    const vivid = (c: Candidate) => c.chroma * (0.2 + c.colour[0]) ** 1.5;
+    // Looks past the noise filter: a flame or a neon sign is small and spread over many tiny buckets.
+    const pool = ranked.filter(c => c.count >= Math.max(3, opaque * 0.0001));
+    const brightest = accent ? (pool.length ? pool : ranked).reduce((a, b) => vivid(b) > vivid(a) ? b : a) : undefined;
+
     while (chosen.length < 6) {
+      if (brightest && chosen.length === 1 && !chosen.includes(brightest)
+        && Math.min(...chosen.map(other => distance(brightest.colour, other.colour))) >= 0.063) {
+        chosen.push(brightest);
+        continue;
+      }
       let best: Candidate | undefined;
       let bestScore = -Infinity;
       for (const candidate of candidates) {
@@ -49,8 +61,10 @@ export function extractPalettes(data: Uint8ClampedArray, width: number, height: 
         const sameHue = chosen.some(other => {
           const [, a, b] = candidate.colour;
           const [, c, d] = other.colour;
+          // Same hue only if also close in lightness: yellow and orange share a hue angle but aren't the same colour.
           return Math.min(candidate.chroma, other.chroma) > 0.045
             && Math.abs(candidate.chroma - other.chroma) < 0.075
+            && Math.abs(candidate.colour[0] - other.colour[0]) < 0.15
             && (a * c + b * d) / (Math.hypot(a, b) * Math.hypot(c, d)) > 0.92;
         });
         const coverage = candidate.count ** (accent && chosen.length ? 0.36 : 0.85);

@@ -133,9 +133,9 @@ async function drawCard(src: string, colours: Colour[], title: string) {
   ctx.font = `400 46px ${family}`;
   ctx.fillText(title || "Untitled", pad, H - pad - 4);
   ctx.fillStyle = "#A3A095";
-  ctx.font = "500 22px -apple-system, system-ui, sans-serif";
+  ctx.font = `400 22px ${family}`;
   ctx.textAlign = "right";
-  ctx.fillText("tintker", W - pad, H - pad - 4);
+  ctx.fillText("Tintker by Diwyani", W - pad, H - pad - 4);
   // Paper grain.
   const paper = ctx.getImageData(0, 0, W, H), d = paper.data;
   for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 9; d[i] += n; d[i + 1] += n; d[i + 2] += n; }

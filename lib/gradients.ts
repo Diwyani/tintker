@@ -95,16 +95,24 @@ function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: 
   small.width = sw; small.height = sh;
   const sctx = ctx2d(small), image = sctx.createImageData(sw, sh, { colorSpace: wideColor() ? "display-p3" : "srgb" });
   const labs = colours.map(c => c.lab), p3 = wideColor(), sig = 0.18, ax = w / long, ay = h / long;
+  // How far each colour reaches: bigger for colours that cover more, and for vivid ones (colourful
+  // and light), so blacks and greys don't spread mud through the blend.
+  const pull = colours.map((c, k) => Math.max(c.area, 0.04) ** 0.3 * (0.25 + Math.hypot(labs[k][1], labs[k][2]) * (0.4 + labs[k][0]) / 0.1));
   for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
     const u = i / (sw - 1), v = j / (sh - 1), acc = [0, 0, 0];
-    let total = 0;
+    let total = 0, chroma = 0;
     colours.forEach((c, k) => {
       const d2 = ((u - c.x) * ax) ** 2 + ((v - c.y) * ay) ** 2;
-      const wt = Math.max(c.area, 0.04) ** 0.3 * Math.exp(-d2 / (2 * sig * sig)) + 1e-6;
+      const wt = pull[k] * Math.exp(-d2 / (2 * sig * sig)) + 1e-6;
       total += wt;
+      chroma += Math.hypot(labs[k][1], labs[k][2]) * wt;
       for (let a = 0; a < 3; a++) acc[a] += labs[k][a] * wt;
     });
-    const rgb = bytesOf(acc.map(a => a / total) as Lab, p3), o = (j * sw + i) * 4;
+    // Averaging different hues cancels their colour out (red + green → grey). Keep the blend as
+    // colourful as the colours it came from: same hue and lightness, chroma restored.
+    const mix = acc.map(a => a / total) as Lab, now = Math.hypot(mix[1], mix[2]), want = chroma / total;
+    if (now > 1e-4) { mix[1] *= want / now; mix[2] *= want / now; }
+    const rgb = bytesOf(mix, p3), o = (j * sw + i) * 4;
     image.data[o] = rgb[0]; image.data[o + 1] = rgb[1]; image.data[o + 2] = rgb[2]; image.data[o + 3] = 255;
   }
   sctx.putImageData(image, 0, 0);

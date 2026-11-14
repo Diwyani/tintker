@@ -36,7 +36,7 @@
   flex-direction: column;
   align-items: center;
   gap: .8rem;
-  padding: 1.4rem clamp(1rem, 3vw, 2rem) 7rem;
+  padding: 1.4rem clamp(1rem, 3vw, 2rem) 3rem;
   min-width: 0;
 }
 .title {
@@ -96,10 +96,10 @@
 
 /* The dock: separate glass pieces in a row. */
 .dock {
-  position: fixed;
-  left: 50%;
-  bottom: 1.1rem;
-  translate: -50% 0;
+  /* Right under the colours; sticks to the bottom only when the page is taller than the screen. */
+  position: sticky;
+  bottom: 1rem;
+  margin-top: .3rem;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -219,7 +219,9 @@
 /* Empty state: one even rhythm, with a little more air before the button. */
 .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; min-height: 100svh; padding: 1rem; box-sizing: border-box; text-align: center; }
 .dropIcon { margin-bottom: .25rem; color: var(--muted); }
-.drop h1 { font-size: clamp(1.1rem, 2vw, 1.3rem); font-weight: 600; letter-spacing: -.01em; }
+.drop h1 { font-size: clamp(1.1rem, 2vw, 1.3rem); font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+/* Phones and tablets can't drag a file in: no "drop" line there. */
+@media (pointer: coarse) { .drop p { display: none; } }
 .dropBox { display: flex; flex-direction: column; align-items: center; gap: .6rem; width: min(44rem, 100%); box-sizing: border-box; padding: clamp(5rem, 18vh, 10rem) 1.5rem; position: relative; }
 .drop p { color: var(--muted); max-width: 24rem; font-size: 13.5px; }
 .browse { margin: .6rem 0 .15rem; padding: .6rem 1.1rem; border-radius: 999px; background: var(--ink); color: #161716; font-weight: 500; }
@@ -274,7 +276,7 @@
 
 /* Narrow windows: the footer moves into the page so it never sits under the dock. */
 @media (max-width: 860px) {
-  .footer { position: static; justify-content: center; padding: 0 1rem 5.5rem; }
+  .footer { position: static; justify-content: center; padding: 0 1rem 1.5rem; }
   .stage { padding-bottom: 1rem; }
   .photo { width: 100% !important; }
 }
