@@ -97,3 +97,44 @@ export function cssOf(lab: Lab) {
 }
 
 export const chromaOf = (lab: Lab) => Math.hypot(lab[1], lab[2]);
+
+/* ---------- Vibe: one dial, cool & faded ↔ warm & vivid, in OKLCH ---------- */
+
+/** OKLCH: lightness, chroma (how colourful), hue (degrees). The polar form of OKLab. */
+export function lchOf([L, a, b]: Lab): Lab {
+  return [L, Math.hypot(a, b), (Math.atan2(b, a) * 180 / Math.PI + 360) % 360];
+}
+export function labOfLch([L, C, h]: Lab): Lab {
+  const r = h * Math.PI / 180;
+  return [L, C * Math.cos(r), C * Math.sin(r)];
+}
+
+const WARM = 70, COOL = 245;
+
+/**
+ * A colour with the vibe `v` (−1 to 1) applied, in OKLCH. 0 is as found. Up: lighter, much more
+ * colourful, washed golden. Down: a touch darker, greyer, washed blue.
+ */
+export function vibeOf(lab: Lab, v: number): Lab {
+  if (!v) return lab;
+  const [L, C, h] = lchOf(lab), k = Math.abs(v);
+  const L2 = Math.min(0.98, Math.max(0.02, L + v * (v > 0 ? 0.05 : 0.07)));
+  const C2 = C * (v > 0 ? 1 + 0.75 * v : 1 - 0.7 * k);
+  // Warmth is a gentle wash toward amber (or blue), like a lens filter: turning each hue instead
+  // sends blues to purple and oranges to pink.
+  const [, a, b] = labOfLch([L2, C2, h]);
+  const tint = labOfLch([0, 0.03 * k, v > 0 ? WARM : COOL]);
+  return [L2, a + tint[1], b + tint[2]];
+}
+
+/** The vibe's name for the caption. */
+export const vibeName = (v: number) =>
+  v <= -0.6 ? "Faded" : v <= -0.2 ? "Soft" : v < 0.2 ? "Natural" : v < 0.6 ? "Warm" : "Vivid";
+
+/** A CSS filter that gives the photo the same vibe (an approximation; the colours use vibeOf). */
+export function vibeFilter(v: number) {
+  if (!v) return "none";
+  return v > 0
+    ? `brightness(${1 + 0.06 * v}) saturate(${1 + 0.7 * v}) sepia(${0.12 * v})`
+    : `brightness(${1 + 0.08 * v}) saturate(${1 + 0.65 * v}) hue-rotate(${-8 * v}deg)`;
+}

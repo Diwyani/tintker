@@ -52,6 +52,26 @@
 .page .title:focus, .page .title:focus-visible { outline: none; border-bottom-color: var(--muted); }
 .title::placeholder { color: #ffffff55; }
 
+/* The photo and, to its right, the vibe strip. */
+.photoWrap { position: relative; display: flex; justify-content: center; width: 100%; }
+.vibe {
+  position: absolute; left: calc(50% + var(--pw) / 2 + 14px); top: 0; bottom: 0; width: 10px;
+  border-radius: 999px; background: linear-gradient(to top, var(--stops)); box-shadow: inset 0 0 0 1px #ffffff1f;
+  cursor: ns-resize; touch-action: none; outline-offset: 4px;
+}
+/* The arrow: points at the strip from the right, follows the pointer exactly (no easing: it's dragged). */
+.vibeArrow {
+  position: absolute; left: calc(100% + 4px); bottom: calc(var(--at) * 100%); translate: 0 50%;
+  width: 0; height: 0; border-block: 6px solid transparent; border-right: 8px solid var(--ink);
+  cursor: grab; transform-origin: left center; transition: scale .15s cubic-bezier(.19, 1, .22, 1);
+  filter: drop-shadow(0 1px 2px #0008);
+}
+/* A bigger invisible handle, so the arrow is easy to grab. */
+.vibeArrow::before { content: ""; position: absolute; left: -6px; top: -16px; width: 28px; height: 32px; }
+/* Held: the arrow and strip grow a little. */
+.vibe[data-dialing="true"] .vibeArrow { scale: 1.35; cursor: grabbing; }
+.vibe { transition: scale .15s cubic-bezier(.19, 1, .22, 1); }
+.vibe[data-dialing="true"] { scale: 1.25 1; }
 .photo { position: relative; border-radius: 10px; box-shadow: 0 24px 70px #0009; touch-action: none; }
 .photo img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; user-select: none; -webkit-user-drag: none; }
 .pin {
@@ -276,6 +296,12 @@
 
 /* Narrow windows: the footer moves into the page so it never sits under the dock. */
 @media (max-width: 860px) {
+  /* Phones: the strip lies under the photo, warmer to the right; the arrow points up at it. */
+  .photoWrap { flex-direction: column; align-items: center; gap: 14px; }
+  .vibe { position: relative; left: auto; top: auto; bottom: auto; width: 100%; height: 10px; background: linear-gradient(to right, var(--stops)); cursor: ew-resize; }
+  .vibeArrow { left: calc(var(--at) * 100%); bottom: auto; top: calc(100% + 4px); translate: -50% 0; border-block: 0; border-inline: 6px solid transparent; border-bottom: 8px solid var(--ink); border-right-width: 6px; border-right-color: transparent; transform-origin: top center; }
+  .vibeArrow::before { left: -16px; top: -6px; width: 32px; height: 28px; }
+  .vibe[data-dialing="true"] { scale: 1 1.25; }
   .footer { position: static; justify-content: center; padding: 0 1rem 1.5rem; }
   .stage { padding-bottom: 1rem; }
   .photo { width: 100% !important; }
@@ -288,7 +314,7 @@
 
 /* Reduced motion: fades only, nothing moves or scales. */
 @media (prefers-reduced-motion: reduce) {
-  .ambient, .pin, .dot, .kind, .round, .save, .me img { transition: none; }
+  .ambient, .pin, .dot, .kind, .round, .save, .me img, .vibe, .vibeArrow { transition: none; }
   .menu, .menu[data-open="true"] { scale: 1; translate: 0 0; }
   .dot:hover, .dot:active, .round:active, .save:active { scale: 1; }
 }

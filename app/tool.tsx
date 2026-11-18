@@ -5,7 +5,7 @@ import { play } from "cuelume";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { looksLikeHeic } from "@/lib/heic";
 import { labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
-import { chromaOf, cssOf, ctx2d, hexOfLab, labOf, type Lab } from "@/lib/color";
+import { chromaOf, cssOf, ctx2d, hexOfLab, labOf, vibeFilter, vibeName, vibeOf, type Lab } from "@/lib/color";
 import { extractPalettes, gradientOrders } from "./palette";
 import styles from "./tool.module.css";
 
@@ -100,11 +100,35 @@ function sampleAt({ data, width, height }: ImageData, p3: boolean, x: number, y:
   return { hex: hexOfLab(lab), lab, x, y };
 }
 
+/** Breaks `text` into at most two lines that fit `width` (long names without spaces break anywhere). */
+function fitLines(ctx: CanvasRenderingContext2D, text: string, width: number, family: string) {
+  for (const size of [44, 40, 36, 32]) {
+    ctx.font = `400 ${size}px ${family}`;
+    const lines: string[] = [];
+    let line = "";
+    for (const ch of text) {
+      if (ctx.measureText(line + ch).width <= width) { line += ch; continue; }
+      // Break at the last space if there is one, else mid-word.
+      const cut = line.lastIndexOf(" ");
+      lines.push(cut > 0 ? line.slice(0, cut) : line);
+      line = (cut > 0 ? line.slice(cut + 1) : "") + ch;
+    }
+    lines.push(line);
+    if (lines.length <= 2) return { size, text: lines };
+    if (size === 32) {
+      let last = lines[1];
+      while (last && ctx.measureText(last + "…").width > width) last = last.slice(0, -1);
+      return { size, text: [lines[0], last.trimEnd() + "…"] };
+    }
+  }
+  return { size: 32, text: [text] };
+}
+
 /**
  * The polaroid card: the image in a paper frame, the palette printed under it like a caption,
  * hex codes, and the title. 1080 × 1350, light paper grain.
  */
-async function drawCard(src: string, colours: Colour[], title: string) {
+async function drawCard(src: string, colours: Colour[], title: string, vibe = 0) {
   const family = getComputedStyle(document.documentElement).getPropertyValue("--font-hand").trim() || "Georgia, serif";
   await document.fonts.load(`64px ${family}`).catch(() => {});
   const image = new Image();
@@ -119,7 +143,9 @@ async function drawCard(src: string, colours: Colour[], title: string) {
   const iw = W - pad * 2, ih = 880;
   const scale = Math.max(iw / image.naturalWidth, ih / image.naturalHeight);
   const sw = iw / scale, sh = ih / scale;
+  ctx.filter = vibeFilter(vibe);
   ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, pad, pad, iw, ih);
+  ctx.filter = "none";
   // The palette, printed as the caption.
   const top = pad + ih + 28, bandH = 160, bw = iw / colours.length;
   colours.forEach((c, i) => {
@@ -129,13 +155,15 @@ async function drawCard(src: string, colours: Colour[], title: string) {
     ctx.font = "500 21px ui-monospace, Menlo, monospace";
     ctx.fillText(c.hex.slice(1), pad + i * bw + 2, top + bandH + 34);
   });
+  // The title: up to two lines, shrinking a little for long names, cut with "…" if still too long.
   ctx.fillStyle = "#24231F";
-  ctx.font = `400 46px ${family}`;
-  ctx.fillText(title || "Untitled", pad, H - pad - 4);
-  ctx.fillStyle = "#A3A095";
-  ctx.font = `400 22px ${family}`;
+  const lines = fitLines(ctx, title || "Untitled", iw, family);
+  lines.text.forEach((line, i) => ctx.fillText(line, pad, H - 60 - (lines.text.length - 1 - i) * lines.size * 1.2));
+  // Signed small and quiet in the bottom margin.
+  ctx.fillStyle = "#BDB9AE";
+  ctx.font = `400 15px ${family}`;
   ctx.textAlign = "right";
-  ctx.fillText("Tintker by Diwyani", W - pad, H - pad - 4);
+  ctx.fillText("Tintker by Diwyani", W - pad, H - 22);
   // Paper grain.
   const paper = ctx.getImageData(0, 0, W, H), d = paper.data;
   for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 9; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
@@ -168,6 +196,10 @@ export default function ColourTool() {
     try { localStorage.setItem("tintker-format", value); } catch { /* private mode: just not remembered */ }
   };
   const [order, setOrder] = useState(0);
+  // The vibe dial beside the photo: −1 cool and faded … 0 as found … 1 warm and vivid.
+  const [vibe, setVibe] = useState(0);
+  const vibeDrag = useRef(false);
+  const [dialing, setDialing] = useState(false);
   const [title, setTitle] = useState("");
   const [active, setActive] = useState<number>();
   const [open, setOpen] = useState<"save" | "me" | null>(null);
@@ -196,11 +228,15 @@ export default function ColourTool() {
   }, [open]);
 
   /** The palette with each colour's share of the image. */
+  /** The palette with each colour's share of the image, and the vibe applied. */
   const colours: Colour[] = useMemo(() => {
     if (!photo || !picks.length) return [];
     const shares = sharesOf(photo.labs, picks.map(p => p.lab));
-    return picks.map((p, i) => ({ ...p, area: shares[i] }));
-  }, [photo, picks]);
+    return picks.map((p, i) => {
+      const lab = vibeOf(p.lab, vibe);
+      return { ...p, lab, hex: hexOfLab(lab), area: shares[i] };
+    });
+  }, [photo, picks, vibe]);
 
   /** Linear runs through the colours in the smoothest order; Shuffle steps through the next-best ones. */
   const linearColours = useMemo(() => {
@@ -265,6 +301,7 @@ export default function ColourTool() {
         if (id !== request.current) return;
         const next = { name: file.name, src: URL.createObjectURL(blob), width, height, pixels, p3, labs: labsOf(pixels.data, p3), palettes };
         setPhoto(next);
+        setVibe(0);
         setTitle(titleOf(file.name));
         choose(next, mode);
       } finally {
@@ -317,7 +354,7 @@ export default function ColourTool() {
 
   async function saveCard() {
     if (!photo) return;
-    const canvas = await drawCard(photo.src, colours, title);
+    const canvas = await drawCard(photo.src, colours, title, vibe);
     download(await encode(canvas, "image/png"), `${slug(title)}-card.png`);
     setSaveOpen(false);
     play("success");
@@ -325,9 +362,25 @@ export default function ColourTool() {
   }
 
   const browse = () => input.current?.click();
-  const changed = !!photo && picks.some((p, i) => p.hex !== photo.palettes[mode][i]?.hex || p.x !== photo.palettes[mode][i]?.x || p.y !== photo.palettes[mode][i]?.y);
+  const changed = !!photo && (vibe !== 0) || !!photo && picks.some((p, i) => p.hex !== photo.palettes[mode][i]?.hex || p.x !== photo.palettes[mode][i]?.x || p.y !== photo.palettes[mode][i]?.y);
   const ambient = previews?.[kind];
   const shown = active === undefined ? undefined : colours[active];
+  /** The strip's paint: the main colour at each vibe, faded at one end, vivid at the other. */
+  // Cool, faded slate at one end, the main colour in the middle, warm and vivid gold at the other.
+  const vibeStops = picks[0] ? [
+    cssOf(vibeOf([0.52, -0.02, -0.06], -0.4)),
+    cssOf(vibeOf(picks[0].lab, -0.6)),
+    cssOf(picks[0].lab),
+    cssOf(vibeOf(picks[0].lab, 0.7)),
+    cssOf(vibeOf([0.8, 0.05, 0.16], 0.8)),
+  ].join(", ") : "";
+  /** Sets the vibe from where the pointer is on the strip (up / right is warmer and more vivid). */
+  function dialTo(event: React.PointerEvent<HTMLElement>) {
+    const r = event.currentTarget.getBoundingClientRect();
+    const t = r.height >= r.width ? (r.bottom - event.clientY) / r.height : (event.clientX - r.left) / r.width;
+    const v = Math.max(-1, Math.min(1, t * 2 - 1));
+    setVibe(Math.abs(v) < 0.05 ? 0 : Math.round(v * 100) / 100);
+  }
   const caption = note || (shown ? `${shown.hex} · ${Math.max(1, Math.round(shown.area * 100))}% of the photo` : "Click a colour to copy it. Drag a dot on the photo to pick another.");
 
   return (
@@ -362,10 +415,10 @@ export default function ColourTool() {
         <div className={styles.stage} aria-busy={busy}>
           <input className={styles.title} value={title} placeholder="Name this palette" maxLength={60} aria-label="Palette name"
             onChange={event => setTitle(event.currentTarget.value)} />
-          <div className={styles.photo} ref={imageBox}
-            style={{ aspectRatio: `${photo.width} / ${photo.height}`, width: `min(100%, calc((100svh - 18.5rem) * ${(photo.width / photo.height).toFixed(4)}))` } as CSSProperties}>
+          <div className={styles.photoWrap} style={{ "--pw": `min(100% - 3rem, calc((100svh - 18.5rem) * ${(photo.width / photo.height).toFixed(4)}))` } as CSSProperties}>
+          <div className={styles.photo} ref={imageBox} style={{ aspectRatio: `${photo.width} / ${photo.height}`, width: "var(--pw)" }}>
             {/* eslint-disable-next-line @next/next/no-img-element -- a local image the visitor chose */}
-            <img src={photo.src} alt="" draggable={false} />
+            <img src={photo.src} alt="" draggable={false} style={{ filter: vibeFilter(vibe) }} />
             {picks.map((p, i) => (
               <button key={i} type="button" className={styles.pin} data-active={active === i}
                 style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, background: cssOf(p.lab) }}
@@ -396,6 +449,32 @@ export default function ColourTool() {
                 }} />
             ))}
           </div>
+          {/* The vibe dial: one strip painted with the main colour from faded to vivid; drag the arrow. */}
+          <div className={styles.vibe} data-dialing={dialing} role="slider" tabIndex={0} aria-label="Vibe" aria-orientation="vertical"
+            aria-valuemin={-100} aria-valuemax={100} aria-valuenow={Math.round(vibe * 100)} aria-valuetext={vibeName(vibe)}
+            title={`${vibeName(vibe)} · drag to change the vibe, double-click for Natural`}
+            style={{ "--stops": vibeStops, "--at": `${(vibe + 1) / 2}` } as CSSProperties}
+            onPointerDown={event => {
+              if (event.button !== 0) return;
+              vibeDrag.current = true;
+              setDialing(true);
+              event.currentTarget.setPointerCapture(event.pointerId);
+              dialTo(event);
+            }}
+            onPointerMove={event => { if (vibeDrag.current) dialTo(event); }}
+            onLostPointerCapture={() => { vibeDrag.current = false; setDialing(false); say(vibeName(vibe)); }}
+            onDoubleClick={() => { setVibe(0); say("Natural"); }}
+            onKeyDown={event => {
+              const step = event.shiftKey ? 0.2 : 0.05;
+              const d = { ArrowUp: step, ArrowRight: step, ArrowDown: -step, ArrowLeft: -step }[event.key];
+              if (event.key === "Home") { event.preventDefault(); setVibe(0); return; }
+              if (d === undefined) return;
+              event.preventDefault();
+              setVibe(v => Math.round(Math.max(-1, Math.min(1, v + d)) * 100) / 100);
+            }}>
+            <span className={styles.vibeArrow} aria-hidden="true" />
+          </div>
+          </div>
 
           <div className={styles.dots} role="group" aria-label="Colours">
             {colours.map((c, i) => (
@@ -409,7 +488,7 @@ export default function ColourTool() {
               onClick={() => void copy(colours.map(c => c.hex).join(", "), "Copied all colours")}><Copy size={15} /></button>
             {/* Shows once a colour has been moved: puts every pin back where Tintker found it. */}
             {changed && <button type="button" className={styles.copyAll} aria-label="Reset colours" title="Reset colours"
-              onClick={() => { choose(photo, mode); say("Colours reset"); }}><RotateCcw size={15} /></button>}
+              onClick={() => { choose(photo, mode); setVibe(0); say("Colours reset"); }}><RotateCcw size={15} /></button>}
           </div>
           <div className={styles.modes} role="group" aria-label="Which colours">
             {(["Scene", "Accent"] as const).map(value => (
