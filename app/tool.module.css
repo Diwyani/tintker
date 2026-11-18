@@ -1,4 +1,5 @@
 .page {
+  overflow-x: clip; /* pins at the photo's edge must not let the page slide sideways */
   --surface: #1a1b1a;
   --ink: #f1f1ed;
   --muted: #ffffffa6;
@@ -73,7 +74,16 @@
 .vibe { transition: scale .15s cubic-bezier(.19, 1, .22, 1); }
 .vibe[data-dialing="true"] { scale: 1.25 1; }
 .photo { position: relative; border-radius: 10px; box-shadow: 0 24px 70px #0009; touch-action: none; }
-.photo img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; user-select: none; -webkit-user-drag: none; }
+.photo img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; user-select: none; -webkit-user-drag: none; will-change: filter; transform: translateZ(0); }
+/* Messages: a chip over the bottom of the photo that fades in and out. */
+.chip {
+  position: absolute; left: 50%; bottom: 12px; z-index: 3; max-width: calc(100% - 24px);
+  padding: .4rem .8rem; border-radius: 999px; background: #161714d9; color: var(--ink);
+  font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  translate: -50% 6px; opacity: 0; transition: opacity .2s ease, translate .25s cubic-bezier(.19, 1, .22, 1);
+}
+.chip[data-show="true"] { opacity: 1; translate: -50% 0; }
 .pin {
   position: absolute;
   width: 20px;
@@ -260,7 +270,7 @@
   color: var(--muted);
   font-size: 12px;
   opacity: .75;
-  z-index: 3;
+  z-index: 6;
 }
 .footer:hover, .footer:focus-within { opacity: 1; }
 .wordmark { font: 400 13px/1 var(--font-hand), cursive; color: var(--ink); translate: 0 2px; text-decoration: none; padding: .35em .3em; margin: -.35em -.3em; }
@@ -298,12 +308,20 @@
 @media (max-width: 860px) {
   /* Phones: the strip lies under the photo, warmer to the right; the arrow points up at it. */
   .photoWrap { flex-direction: column; align-items: center; gap: 14px; }
-  .vibe { position: relative; left: auto; top: auto; bottom: auto; width: 100%; height: 10px; background: linear-gradient(to right, var(--stops)); cursor: ew-resize; }
-  .vibeArrow { left: calc(var(--at) * 100%); bottom: auto; top: calc(100% + 4px); translate: -50% 0; border-block: 0; border-inline: 6px solid transparent; border-bottom: 8px solid var(--ink); border-right-width: 6px; border-right-color: transparent; transform-origin: top center; }
-  .vibeArrow::before { left: -16px; top: -6px; width: 32px; height: 28px; }
-  .vibe[data-dialing="true"] { scale: 1 1.25; }
-  .footer { position: static; justify-content: center; padding: 0 1rem 1.5rem; }
-  .stage { padding-bottom: 1rem; }
+  /* Phones: the bar has a round handle inside it that follows your finger. */
+  .vibe { position: relative; left: auto; top: auto; bottom: auto; width: 100%; height: 12px; margin: 6px 0; background: linear-gradient(to right, var(--stops)); cursor: ew-resize; }
+  .vibe::before { content: ""; position: absolute; inset: -16px 0; } /* a finger-sized strip to grab */
+  .vibeArrow { left: calc(12px + var(--at) * (100% - 24px)); bottom: auto; top: 50%; translate: -50% -50%; width: 26px; height: 26px; border: 3px solid #fff; border-radius: 50%; background: var(--thumb, transparent); box-shadow: 0 2px 8px #0009; transform-origin: center; filter: none; }
+  .vibeArrow::before { left: -12px; top: -12px; width: 44px; height: 44px; }
+  .vibe[data-dialing="true"] { scale: 1; }
+  .vibe[data-dialing="true"] .vibeArrow { scale: 1.2; }
+  .footer { position: relative; justify-content: center; padding: 0 1rem 1.5rem; }
+  .stage { padding-bottom: 1rem; gap: 1.15rem; }
+  .photoWrap { gap: 18px; }
+  .dots { margin-block: .2rem; }
+  /* Phones: the dock sits in the page under the colours (not stuck over the text), with room below it. */
+  .dock { position: static; }
+  .footer { margin-top: 1.25rem; }
   .photo { width: 100% !important; }
 }
 @media (max-width: 400px) {

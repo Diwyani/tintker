@@ -95,9 +95,9 @@ function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: 
   small.width = sw; small.height = sh;
   const sctx = ctx2d(small), image = sctx.createImageData(sw, sh, { colorSpace: wideColor() ? "display-p3" : "srgb" });
   const labs = colours.map(c => c.lab), p3 = wideColor(), sig = 0.18, ax = w / long, ay = h / long;
-  // How far each colour reaches: bigger for colours that cover more, and for vivid ones (colourful
-  // and light), so blacks and greys don't spread mud through the blend.
-  const pull = colours.map((c, k) => Math.max(c.area, 0.04) ** 0.3 * (0.25 + Math.hypot(labs[k][1], labs[k][2]) * (0.4 + labs[k][0]) / 0.1));
+  // How far each colour reaches: bigger for colours that cover more (but every picked colour reaches
+  // far enough to be seen), and for vivid ones, so blacks and greys don't spread mud through the blend.
+  const pull = colours.map((c, k) => Math.max(c.area, 0.12) ** 0.3 * (0.25 + Math.hypot(labs[k][1], labs[k][2]) * (0.4 + labs[k][0]) / 0.1));
   for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
     const u = i / (sw - 1), v = j / (sh - 1), acc = [0, 0, 0];
     let total = 0, chroma = 0;

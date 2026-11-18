@@ -2,7 +2,7 @@
 
 import { Braces, Copy, Download, Hash, ImageDown, ImagePlus, Mail, RectangleVertical, RotateCcw, Shuffle } from "lucide-react";
 import { play } from "cuelume";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { looksLikeHeic } from "@/lib/heic";
 import { labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
 import { chromaOf, cssOf, ctx2d, hexOfLab, labOf, vibeFilter, vibeName, vibeOf, type Lab } from "@/lib/color";
@@ -64,6 +64,34 @@ function draw(bitmap: ImageBitmap, maxSide: number) {
 
 const encode = (canvas: HTMLCanvasElement, type: string) => new Promise<Blob>((resolve, reject) =>
   canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Image encoding failed.")), type, 0.94));
+
+/** Phones and tablets: hand the file to the share sheet (Save Image, Save to Files, WhatsApp…). */
+const touchFirst = () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
+
+/**
+ * Gives the visitor the file. On a phone, the share sheet (Save Image puts it in Photos; or Files,
+ * WhatsApp, Instagram); elsewhere, or if sharing isn't allowed, a normal download.
+ * Returns what happened, for the message.
+ */
+async function deliver(blob: Blob, name: string): Promise<"shared" | "cancelled" | "downloaded"> {
+  if (touchFirst()) {
+    const file = new File([blob], name, { type: blob.type });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: name });
+        return "shared";
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+        // Not allowed (e.g. too long after the tap): fall back to a download.
+      }
+    }
+  }
+  download(blob, name);
+  return "downloaded";
+}
+
+/** Where a download lands, in words. */
+const savedWhere = () => /iPhone|iPad|iPod/.test(navigator.userAgent) ? "Saved to Files › Downloads" : "Saved to your Downloads";
 
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -199,6 +227,7 @@ export default function ColourTool() {
   // The vibe dial beside the photo: −1 cool and faded … 0 as found … 1 warm and vivid.
   const [vibe, setVibe] = useState(0);
   const vibeDrag = useRef(false);
+  const vibeFrame = useRef(0);
   const [dialing, setDialing] = useState(false);
   const [title, setTitle] = useState("");
   const [active, setActive] = useState<number>();
@@ -209,6 +238,7 @@ export default function ColourTool() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [noteOn, setNoteOn] = useState(false);
   const src = photo?.src;
 
   useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
@@ -257,20 +287,23 @@ export default function ColourTool() {
     return k ? colours.map((c, i) => ({ ...c, x: colours[(i + k) % n].x, y: colours[(i + k) % n].y })) : colours;
   }, [colours, order]);
 
+  // The previews (and the page's glow) catch up a moment later while you drag, so the drag stays smooth.
+  const lateMesh = useDeferredValue(meshColours), lateLinear = useDeferredValue(linearColours);
   const previews = useMemo(() => {
     if (!photo || !colours.length) return null;
     const w = 200, h = Math.round(200 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
     return {
-      mesh: renderGradient("mesh", meshColours, w, h, grain / 100).toDataURL(),
-      linear: renderGradient("linear", linearColours, w, h, grain / 100).toDataURL(),
-      radial: renderGradient("radial", linearColours, w, h, grain / 100).toDataURL(),
+      mesh: renderGradient("mesh", lateMesh, w, h, grain / 100).toDataURL(),
+      linear: renderGradient("linear", lateLinear, w, h, grain / 100).toDataURL(),
+      radial: renderGradient("radial", lateLinear, w, h, grain / 100).toDataURL(),
     };
-  }, [photo, colours, meshColours, linearColours, grain]);
+  }, [photo, colours.length, lateMesh, lateLinear, grain]);
 
   function say(message: string) {
     setNote(message);
+    setNoteOn(true);
     clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setNote(""), 2200);
+    noteTimer.current = setTimeout(() => setNoteOn(false), 2200);
   }
 
   function choose(next: Photo, nextMode: Mode) {
@@ -338,27 +371,28 @@ export default function ColourTool() {
     const ratio = photo.height / photo.width, ordered = which === "mesh" ? meshColours : linearColours;
     if (format === "png") {
       const long = 2048, w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
-      download(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}.png`);
       setOpen(null);
-      play("success");
-      say(`Saved the ${which} gradient`);
+      done(await deliver(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}.png`), `${KIND_LABEL[which]} gradient`);
       return;
     }
     const w = ratio > 1 ? Math.round(1024 / ratio) : 1024, h = ratio > 1 ? 1024 : Math.round(1024 * ratio);
     const svg = which === "mesh" ? meshSvg(ordered, w, h, grain / 100) : which === "radial" ? radialSvg(ordered, w, h) : linearSvg(ordered, w, h);
-    download(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}.svg`);
     setOpen(null);
+    done(await deliver(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}.svg`), `${KIND_LABEL[which]} SVG`);
+  }
+
+  /** The chip after a save or share: what happened and where the file went. */
+  function done(result: "shared" | "cancelled" | "downloaded", what: string) {
+    if (result === "cancelled") return;
     play("success");
-    say(which === "mesh" ? "Saved the SVG (grain shows in browsers only)" : "Saved the SVG (no grain)");
+    say(result === "shared" ? `${what} shared` : `${what} · ${savedWhere()}`);
   }
 
   async function saveCard() {
     if (!photo) return;
     const canvas = await drawCard(photo.src, colours, title, vibe);
-    download(await encode(canvas, "image/png"), `${slug(title)}-card.png`);
     setSaveOpen(false);
-    play("success");
-    say("Saved the card");
+    done(await deliver(await encode(canvas, "image/png"), `${slug(title)}-card.png`), "Palette card");
   }
 
   const browse = () => input.current?.click();
@@ -379,9 +413,11 @@ export default function ColourTool() {
     const r = event.currentTarget.getBoundingClientRect();
     const t = r.height >= r.width ? (r.bottom - event.clientY) / r.height : (event.clientX - r.left) / r.width;
     const v = Math.max(-1, Math.min(1, t * 2 - 1));
-    setVibe(Math.abs(v) < 0.05 ? 0 : Math.round(v * 100) / 100);
+    // Once per screen refresh: iPhone Safari flashes the photo if its filter changes faster.
+    cancelAnimationFrame(vibeFrame.current);
+    vibeFrame.current = requestAnimationFrame(() => setVibe(Math.abs(v) < 0.05 ? 0 : Math.round(v * 100) / 100));
   }
-  const caption = note || (shown ? `${shown.hex} · ${Math.max(1, Math.round(shown.area * 100))}% of the photo` : "Click a colour to copy it. Drag a dot on the photo to pick another.");
+  const caption = (shown ? `${shown.hex} · ${Math.max(1, Math.round(shown.area * 100))}% of the photo` : "Click a colour to copy it. Drag a dot on the photo to pick another.");
 
   return (
     <main
@@ -419,6 +455,8 @@ export default function ColourTool() {
           <div className={styles.photo} ref={imageBox} style={{ aspectRatio: `${photo.width} / ${photo.height}`, width: "var(--pw)" }}>
             {/* eslint-disable-next-line @next/next/no-img-element -- a local image the visitor chose */}
             <img src={photo.src} alt="" draggable={false} style={{ filter: vibeFilter(vibe) }} />
+            {/* Messages appear as a chip over the photo, then fade. */}
+            <p className={styles.chip} role="status" data-show={noteOn}>{note}</p>
             {picks.map((p, i) => (
               <button key={i} type="button" className={styles.pin} data-active={active === i}
                 style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, background: cssOf(p.lab) }}
@@ -453,7 +491,7 @@ export default function ColourTool() {
           <div className={styles.vibe} data-dialing={dialing} role="slider" tabIndex={0} aria-label="Vibe" aria-orientation="vertical"
             aria-valuemin={-100} aria-valuemax={100} aria-valuenow={Math.round(vibe * 100)} aria-valuetext={vibeName(vibe)}
             title={`${vibeName(vibe)} · drag to change the vibe, double-click for Natural`}
-            style={{ "--stops": vibeStops, "--at": `${(vibe + 1) / 2}` } as CSSProperties}
+            style={{ "--stops": vibeStops, "--at": `${(vibe + 1) / 2}`, "--thumb": picks[0] ? cssOf(vibeOf(picks[0].lab, vibe)) : undefined } as CSSProperties}
             onPointerDown={event => {
               if (event.button !== 0) return;
               vibeDrag.current = true;
@@ -496,7 +534,7 @@ export default function ColourTool() {
                 onClick={() => { if (mode !== value) { setMode(value); choose(photo, value); say(MODE_HINT[value]); } }}>{value}</button>
             ))}
           </div>
-          <p className={styles.caption} role="status">{caption}</p>
+          <p className={styles.caption}>{caption}</p>
 
           {/* The dock: only what you make from the colours. */}
           <div className={styles.dock}>
