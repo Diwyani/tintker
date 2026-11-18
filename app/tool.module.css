@@ -154,7 +154,7 @@
 }
 .round:hover { background-color: #2a2b29cc; }
 .round:active, .save:active { scale: .97; }
-.pill { display: flex; align-items: center; gap: .35rem; height: 2.5rem; padding: 0 .4rem; border-radius: 999px; box-sizing: border-box; }
+.pill { display: flex; align-items: center; gap: .6rem; height: 2.5rem; padding: 0 .6rem; border-radius: 999px; box-sizing: border-box; }
 .kind {
   width: 1.65rem;
   height: 1.65rem;
@@ -165,7 +165,7 @@
   transition: opacity .15s ease, box-shadow .15s ease;
 }
 .kind:hover { opacity: 1; }
-.kind[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px #fff; }
+.kind[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px #1a1b1a, 0 0 0 3.5px #fff; } /* a thin gap, then the ring */
 .iconButton { display: grid; place-items: center; width: 1.65rem; height: 1.65rem; border-radius: 50%; color: var(--muted); transition: color .15s ease, background-color .15s ease; }
 .iconButton:hover { color: var(--ink); background: #ffffff1a; }
 .save {
@@ -315,7 +315,7 @@
   .vibeArrow::before { left: -12px; top: -12px; width: 44px; height: 44px; }
   .vibe[data-dialing="true"] { scale: 1; }
   .vibe[data-dialing="true"] .vibeArrow { scale: 1.2; }
-  .footer { position: relative; justify-content: center; padding: 0 1rem 1.5rem; }
+  .footer { position: relative; right: auto; bottom: auto; justify-content: center; padding: 0 1rem 1.5rem; }
   .stage { padding-bottom: 1rem; gap: 1.15rem; }
   .photoWrap { gap: 18px; }
   .dots { margin-block: .2rem; }
