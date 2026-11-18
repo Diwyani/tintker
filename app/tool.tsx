@@ -219,6 +219,18 @@ export default function ColourTool() {
   const [format, setFormat] = useState<"png" | "svg">(() => {
     try { return localStorage.getItem("tintker-format") === "svg" ? "svg" : "png"; } catch { return "png"; }
   });
+  // Gradient shape: the photo's, or 9:16 for phones. Phones start on 9:16. Remembered.
+  const [shape, setShape] = useState<"photo" | "story">(() => {
+    try {
+      const saved = localStorage.getItem("tintker-shape");
+      if (saved === "photo" || saved === "story") return saved;
+    } catch { /* storage is optional */ }
+    return touchFirst() ? "story" : "photo";
+  });
+  const chooseShape = (value: "photo" | "story") => {
+    setShape(value);
+    try { localStorage.setItem("tintker-shape", value); } catch { /* private mode */ }
+  };
   const chooseFormat = (value: "png" | "svg") => {
     setFormat(value);
     try { localStorage.setItem("tintker-format", value); } catch { /* private mode: just not remembered */ }
@@ -288,16 +300,32 @@ export default function ColourTool() {
   }, [colours, order]);
 
   // The previews (and the page's glow) catch up a moment later while you drag, so the drag stays smooth.
-  const lateMesh = useDeferredValue(meshColours), lateLinear = useDeferredValue(linearColours);
+  const lateMesh = useDeferredValue(meshColours), lateLinear = useDeferredValue(linearColours), lateGrain = useDeferredValue(grain);
   const previews = useMemo(() => {
     if (!photo || !colours.length) return null;
     const w = 200, h = Math.round(200 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
     return {
-      mesh: renderGradient("mesh", lateMesh, w, h, grain / 100).toDataURL(),
-      linear: renderGradient("linear", lateLinear, w, h, grain / 100).toDataURL(),
-      radial: renderGradient("radial", lateLinear, w, h, grain / 100).toDataURL(),
+      mesh: renderGradient("mesh", lateMesh, w, h, lateGrain / 100).toDataURL(),
+      linear: renderGradient("linear", lateLinear, w, h, lateGrain / 100).toDataURL(),
+      radial: renderGradient("radial", lateLinear, w, h, lateGrain / 100).toDataURL(),
     };
-  }, [photo, colours.length, lateMesh, lateLinear, grain]);
+  }, [photo, colours.length, lateMesh, lateLinear, lateGrain]);
+
+  /*
+    The page's glow: its own small render with no grain (it's blurred away anyway), swapped in only
+    once things settle. Swapping the big blurred layer on every slider move made iPhone Safari flash
+    black frames.
+  */
+  const glowSrc = useMemo(() => {
+    if (!photo || !lateMesh.length) return undefined;
+    const h = Math.round(160 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
+    return renderGradient(kind, kind === "mesh" ? lateMesh : lateLinear, 160, h, 0).toDataURL();
+  }, [photo, kind, lateMesh, lateLinear]);
+  const [ambient, setAmbient] = useState<string>();
+  useEffect(() => {
+    const timer = setTimeout(() => setAmbient(glowSrc), 250);
+    return () => clearTimeout(timer);
+  }, [glowSrc]);
 
   function say(message: string) {
     setNote(message);
@@ -368,17 +396,19 @@ export default function ColourTool() {
   /** A gradient in the chosen file type. SVG has no grain, except Mesh's, which shows in browsers. */
   async function downloadGradient(which: Kind) {
     if (!photo) return;
-    const ratio = photo.height / photo.width, ordered = which === "mesh" ? meshColours : linearColours;
+    // 9:16 (phone wallpaper, Story, Reel) or the photo's own shape.
+    const ratio = shape === "story" ? 16 / 9 : photo.height / photo.width, ordered = which === "mesh" ? meshColours : linearColours;
+    const tag = shape === "story" ? "-9x16" : "";
     if (format === "png") {
       const long = 2048, w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
       setOpen(null);
-      done(await deliver(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}.png`), `${KIND_LABEL[which]} gradient`);
+      done(await deliver(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}${tag}.png`), `${KIND_LABEL[which]} gradient`);
       return;
     }
     const w = ratio > 1 ? Math.round(1024 / ratio) : 1024, h = ratio > 1 ? 1024 : Math.round(1024 * ratio);
     const svg = which === "mesh" ? meshSvg(ordered, w, h, grain / 100) : which === "radial" ? radialSvg(ordered, w, h) : linearSvg(ordered, w, h);
     setOpen(null);
-    done(await deliver(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}.svg`), `${KIND_LABEL[which]} SVG`);
+    done(await deliver(new Blob([svg], { type: "image/svg+xml" }), `${slug(title)}-${which}${tag}.svg`), `${KIND_LABEL[which]} SVG`);
   }
 
   /** The chip after a save or share: what happened and where the file went. */
@@ -397,7 +427,6 @@ export default function ColourTool() {
 
   const browse = () => input.current?.click();
   const changed = !!photo && (vibe !== 0) || !!photo && picks.some((p, i) => p.hex !== photo.palettes[mode][i]?.hex || p.x !== photo.palettes[mode][i]?.x || p.y !== photo.palettes[mode][i]?.y);
-  const ambient = previews?.[kind];
   const shown = active === undefined ? undefined : colours[active];
   /** The strip's paint: the main colour at each vibe, faded at one end, vivid at the other. */
   // Cool, faded slate at one end, the main colour in the middle, warm and vivid gold at the other.
@@ -559,6 +588,14 @@ export default function ColourTool() {
                   <span>Grain</span>
                   <input type="range" min="0" max="100" value={grain} onChange={event => setGrain(event.currentTarget.valueAsNumber)} />
                 </label>
+                <div className={styles.formatRow}>
+                  <span>Shape</span>
+                  <div className={styles.format} role="radiogroup" aria-label="Gradient shape">
+                    {([["photo", "Photo"], ["story", "9:16"]] as const).map(([value, label]) => (
+                      <button key={value} type="button" role="radio" aria-checked={shape === value} onClick={() => chooseShape(value)}>{label}</button>
+                    ))}
+                  </div>
+                </div>
                 <div className={styles.formatRow}>
                   <span>File type</span>
                   <div className={styles.format} role="radiogroup" aria-label="File type">
