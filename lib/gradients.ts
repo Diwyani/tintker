@@ -89,74 +89,37 @@ function drawRadial(ctx: CanvasRenderingContext2D, w: number, h: number, colours
   ctx.putImageData(image, 0, 0);
 }
 
-/** Mesh styles, in the order Shuffle steps through them. */
-export const MESH_STYLES = ["Soft blobs", "Grid", "Flow"] as const;
-
 /**
- * Mesh: soft areas of colour that blend into each other, in three styles (Shuffle steps through them):
- * - 0 Soft blobs: each colour starts at its pin and is pushed apart from the others; round, calm.
- * - 1 Grid: the colours sit on a 2 × 3 grid (3 × 2 for wide frames), each in the slot nearest its pin,
- *   with a gentle wobble: the classic mesh-gradient look.
- * - 2 Flow: like Soft blobs, but the space is swirled, so the colours sweep and flow.
+ * Mesh: the classic mesh-gradient look. The colours sit on a 2 × 3 grid (3 × 2 for wide frames),
+ * each in the slot nearest its pin in the photo, and blend softly into each other, with a gentle
+ * wobble so the edges aren't straight. Shuffle moves the colours to other slots.
  * Each point mixes the colours by a soft Gaussian falloff in OKLab, and gets back the colourfulness
  * that mixing different hues takes away (capped, so hues never snap). Worked out directly at up to
  * 640 px on the long side and scaled up smoothly (no canvas blur filter, which Safari ignores).
  */
-function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[], style = 0) {
+function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
   const long = Math.max(w, h), scale = Math.min(1, 640 / long);
   const sw = Math.max(8, Math.round(w * scale)), sh = Math.max(8, Math.round(h * scale));
   const small = document.createElement("canvas");
   small.width = sw; small.height = sh;
   const p3 = wideColor(), sctx = ctx2d(small), image = sctx.createImageData(sw, sh, { colorSpace: p3 ? "display-p3" : "srgb" });
-  const ax = w / long, ay = h / long, short = Math.min(ax, ay);
-  const kind = style % MESH_STYLES.length;
-  const sig = [0.17, 0.2, 0.15][kind], cap = [1.8, 1.6, 1.8][kind];
+  const ax = w / long, ay = h / long, sig = 0.2, cap = 1.6;
 
-  // Where each colour sits.
-  let spots: { x: number; y: number; lab: Lab }[];
-  if (kind === 1) {
-    const tall = h >= w;
-    const slots = tall
-      ? [[0.15, 0.12], [0.85, 0.12], [0.15, 0.5], [0.85, 0.5], [0.15, 0.88], [0.85, 0.88]]
-      : [[0.12, 0.15], [0.5, 0.15], [0.88, 0.15], [0.12, 0.85], [0.5, 0.85], [0.88, 0.85]];
-    const left = [...colours];
-    spots = slots.slice(0, colours.length).map(([x, y]) => {
-      let best = 0, bestD = Infinity;
-      left.forEach((c, i) => { const d = (c.x - x) ** 2 + (c.y - y) ** 2; if (d < bestD) { bestD = d; best = i; } });
-      return { x, y, lab: left.splice(best, 1)[0].lab };
-    });
-  } else {
-    // Push the spots apart until none is closer than `spread` (measured in short sides of the frame).
-    const spread = kind === 0 ? 0.75 : 0.65;
-    spots = colours.map(c => ({ x: c.x, y: c.y, lab: c.lab }));
-    for (let pass = 0; pass < 120; pass++) {
-      for (const a of spots) for (const b of spots) {
-        if (a === b) continue;
-        const dx = (a.x - b.x) * ax / short, dy = (a.y - b.y) * ay / short, d = Math.hypot(dx, dy) || 1e-3;
-        if (d >= spread) continue;
-        const k = (spread - d) * 0.04 / d;
-        a.x = Math.min(0.9, Math.max(0.1, a.x + dx * k * short / ax));
-        a.y = Math.min(0.92, Math.max(0.08, a.y + dy * k * short / ay));
-      }
-    }
-  }
+  const slots = h >= w
+    ? [[0.15, 0.12], [0.85, 0.12], [0.15, 0.5], [0.85, 0.5], [0.15, 0.88], [0.85, 0.88]]
+    : [[0.12, 0.15], [0.5, 0.15], [0.88, 0.15], [0.12, 0.85], [0.5, 0.85], [0.88, 0.85]];
+  const left = [...colours];
+  const spots = slots.slice(0, colours.length).map(([x, y]) => {
+    let best = 0, bestD = Infinity;
+    left.forEach((c, i) => { const d = (c.x - x) ** 2 + (c.y - y) ** 2; if (d < bestD) { bestD = d; best = i; } });
+    return { x, y, lab: left.splice(best, 1)[0].lab };
+  });
   const chromas = spots.map(s => Math.hypot(s.lab[1], s.lab[2]));
 
   const d = image.data;
   for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
-    let u = (i + 0.5) / sw, v = (j + 0.5) / sh;
-    if (kind === 2) {
-      // Flow: two layers of gentle waves bend the space.
-      for (let layer = 0; layer < 2; layer++) {
-        const du = 0.2 * Math.sin(2.3 * v + 1.7 * u + 0.9) + 0.1 * Math.sin(4.1 * v - 2.6 * u + 2.2);
-        const dv = 0.2 * Math.sin(2.1 * u - 1.3 * v + 0.3) + 0.1 * Math.sin(3.7 * u + 2.9 * v - 1.1);
-        u += du; v += dv;
-      }
-    } else if (kind === 1) {
-      // Grid: a slight wobble so the edges aren't straight.
-      const wu = u + 0.06 * Math.sin(5.1 * v + 1.3) * Math.cos(3.3 * u), wv = v + 0.06 * Math.sin(4.7 * u - 0.7) * Math.cos(2.9 * v);
-      u = wu; v = wv;
-    }
+    const u0 = (i + 0.5) / sw, v0 = (j + 0.5) / sh;
+    const u = u0 + 0.06 * Math.sin(5.1 * v0 + 1.3) * Math.cos(3.3 * u0), v = v0 + 0.06 * Math.sin(4.7 * u0 - 0.7) * Math.cos(2.9 * v0);
     let total = 0, chroma = 0, L = 0, A = 0, B = 0;
     for (let k = 0; k < spots.length; k++) {
       const d2 = ((u - spots[k].x) * ax) ** 2 + ((v - spots[k].y) * ay) ** 2; // in long sides
@@ -178,14 +141,13 @@ function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: 
 }
 
 /** A gradient as a canvas. `grain`: 0–1. Linear uses the colours in the order given. */
-/** A gradient as a canvas. `grain`: 0–1. Linear uses the colours in the order given. `meshStyle`: see MESH_STYLES. */
-export function renderGradient(kind: Kind, colours: Colour[], w: number, h: number, grain: number, meshStyle = 0) {
+export function renderGradient(kind: Kind, colours: Colour[], w: number, h: number, grain: number) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(w));
   canvas.height = Math.max(1, Math.round(h));
   const ctx = ctx2d(canvas, { willReadFrequently: true });
   if (!ctx || !colours.length) return canvas;
-  if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours, meshStyle);
+  if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours);
   else if (kind === "radial") drawRadial(ctx, canvas.width, canvas.height, colours);
   else drawLinear(ctx, canvas.width, canvas.height, colours);
   addGrain(ctx, canvas.width, canvas.height, grain);
