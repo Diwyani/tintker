@@ -154,18 +154,22 @@
 }
 .round:hover { background-color: #2a2b29cc; }
 .round:active, .save:active { scale: .97; }
-.pill { display: flex; align-items: center; gap: .6rem; height: 2.5rem; padding: 0 .6rem; border-radius: 999px; box-sizing: border-box; }
+.pill { display: flex; align-items: center; gap: .4rem; height: 2.5rem; padding: 0 .45rem; border-radius: 999px; box-sizing: border-box; }
+/* A gradient thumbnail. The ring is drawn inside the button's own box (a border around a padded
+   circle), never outside it: iPhone Safari left stray white arcs when a shadow ring outside the box
+   moved from one thumbnail to another inside the blurred dock. */
 .kind {
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 2.5px;
+  border: 1.5px solid transparent;
   border-radius: 50%;
-  background: center / cover;
-  box-shadow: 0 0 0 1.5px #ffffff38;
+  background: center / cover content-box;
   opacity: .7;
-  transition: opacity .15s ease, box-shadow .15s ease;
+  transition: opacity .15s ease, border-color .15s ease;
 }
 .kind:hover { opacity: 1; }
-.kind[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px #1a1b1a, 0 0 0 3.5px #fff; } /* a thin gap, then the ring */
+.kind[aria-pressed="true"] { opacity: 1; border-color: #fff; }
 .iconButton { display: grid; place-items: center; width: 1.65rem; height: 1.65rem; border-radius: 50%; color: var(--muted); transition: color .15s ease, background-color .15s ease; }
 .iconButton:hover { color: var(--ink); background: #ffffff1a; }
 .save {
@@ -316,6 +320,9 @@
   .vibe[data-dialing="true"] { scale: 1; }
   .vibe[data-dialing="true"] .vibeArrow { scale: 1.2; }
   .footer { position: relative; right: auto; bottom: auto; justify-content: center; padding: 0 1rem 1.5rem; }
+  /* Credits opens centred on the screen, above the footer, never past the edges. */
+  .footer details { position: static; }
+  .footerPanel { right: auto; left: 50%; translate: -50% 0; width: min(18.5rem, 100vw - 2rem); }
   .stage { padding-bottom: 1rem; gap: 1.15rem; }
   .photoWrap { gap: 18px; }
   .dots { margin-block: .2rem; }
