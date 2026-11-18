@@ -89,48 +89,103 @@ function drawRadial(ctx: CanvasRenderingContext2D, w: number, h: number, colours
   ctx.putImageData(image, 0, 0);
 }
 
-function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[]) {
-  const long = Math.max(w, h), sw = Math.max(8, Math.round(40 * w / long)), sh = Math.max(8, Math.round(40 * h / long));
+/** Mesh styles, in the order Shuffle steps through them. */
+export const MESH_STYLES = ["Soft blobs", "Grid", "Flow"] as const;
+
+/**
+ * Mesh: soft areas of colour that blend into each other, in three styles (Shuffle steps through them):
+ * - 0 Soft blobs: each colour starts at its pin and is pushed apart from the others; round, calm.
+ * - 1 Grid: the colours sit on a 2 × 3 grid (3 × 2 for wide frames), each in the slot nearest its pin,
+ *   with a gentle wobble: the classic mesh-gradient look.
+ * - 2 Flow: like Soft blobs, but the space is swirled, so the colours sweep and flow.
+ * Each point mixes the colours by a soft Gaussian falloff in OKLab, and gets back the colourfulness
+ * that mixing different hues takes away (capped, so hues never snap). Worked out directly at up to
+ * 640 px on the long side and scaled up smoothly (no canvas blur filter, which Safari ignores).
+ */
+function drawMesh(ctx: CanvasRenderingContext2D, w: number, h: number, colours: Colour[], style = 0) {
+  const long = Math.max(w, h), scale = Math.min(1, 640 / long);
+  const sw = Math.max(8, Math.round(w * scale)), sh = Math.max(8, Math.round(h * scale));
   const small = document.createElement("canvas");
   small.width = sw; small.height = sh;
-  const sctx = ctx2d(small), image = sctx.createImageData(sw, sh, { colorSpace: wideColor() ? "display-p3" : "srgb" });
-  const labs = colours.map(c => c.lab), p3 = wideColor(), sig = 0.18, ax = w / long, ay = h / long;
-  // How far each colour reaches: bigger for colours that cover more (but every picked colour reaches
-  // far enough to be seen), and for vivid ones, so blacks and greys don't spread mud through the blend.
-  const pull = colours.map((c, k) => Math.max(c.area, 0.12) ** 0.3 * (0.25 + Math.hypot(labs[k][1], labs[k][2]) * (0.4 + labs[k][0]) / 0.1));
-  for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
-    const u = i / (sw - 1), v = j / (sh - 1), acc = [0, 0, 0];
-    let total = 0, chroma = 0;
-    colours.forEach((c, k) => {
-      const d2 = ((u - c.x) * ax) ** 2 + ((v - c.y) * ay) ** 2;
-      const wt = pull[k] * Math.exp(-d2 / (2 * sig * sig)) + 1e-6;
-      total += wt;
-      chroma += Math.hypot(labs[k][1], labs[k][2]) * wt;
-      for (let a = 0; a < 3; a++) acc[a] += labs[k][a] * wt;
+  const p3 = wideColor(), sctx = ctx2d(small), image = sctx.createImageData(sw, sh, { colorSpace: p3 ? "display-p3" : "srgb" });
+  const ax = w / long, ay = h / long, short = Math.min(ax, ay);
+  const kind = style % MESH_STYLES.length;
+  const sig = [0.17, 0.2, 0.15][kind], cap = [1.8, 1.6, 1.8][kind];
+
+  // Where each colour sits.
+  let spots: { x: number; y: number; lab: Lab }[];
+  if (kind === 1) {
+    const tall = h >= w;
+    const slots = tall
+      ? [[0.15, 0.12], [0.85, 0.12], [0.15, 0.5], [0.85, 0.5], [0.15, 0.88], [0.85, 0.88]]
+      : [[0.12, 0.15], [0.5, 0.15], [0.88, 0.15], [0.12, 0.85], [0.5, 0.85], [0.88, 0.85]];
+    const left = [...colours];
+    spots = slots.slice(0, colours.length).map(([x, y]) => {
+      let best = 0, bestD = Infinity;
+      left.forEach((c, i) => { const d = (c.x - x) ** 2 + (c.y - y) ** 2; if (d < bestD) { bestD = d; best = i; } });
+      return { x, y, lab: left.splice(best, 1)[0].lab };
     });
-    // Averaging different hues cancels their colour out (red + green → grey). Keep the blend as
-    // colourful as the colours it came from: same hue and lightness, chroma restored.
-    const mix = acc.map(a => a / total) as Lab, now = Math.hypot(mix[1], mix[2]), want = chroma / total;
-    if (now > 1e-4) { mix[1] *= want / now; mix[2] *= want / now; }
-    const rgb = bytesOf(mix, p3), o = (j * sw + i) * 4;
-    image.data[o] = rgb[0]; image.data[o + 1] = rgb[1]; image.data[o + 2] = rgb[2]; image.data[o + 3] = 255;
+  } else {
+    // Push the spots apart until none is closer than `spread` (measured in short sides of the frame).
+    const spread = kind === 0 ? 0.75 : 0.65;
+    spots = colours.map(c => ({ x: c.x, y: c.y, lab: c.lab }));
+    for (let pass = 0; pass < 120; pass++) {
+      for (const a of spots) for (const b of spots) {
+        if (a === b) continue;
+        const dx = (a.x - b.x) * ax / short, dy = (a.y - b.y) * ay / short, d = Math.hypot(dx, dy) || 1e-3;
+        if (d >= spread) continue;
+        const k = (spread - d) * 0.04 / d;
+        a.x = Math.min(0.9, Math.max(0.1, a.x + dx * k * short / ax));
+        a.y = Math.min(0.92, Math.max(0.08, a.y + dy * k * short / ay));
+      }
+    }
+  }
+  const chromas = spots.map(s => Math.hypot(s.lab[1], s.lab[2]));
+
+  const d = image.data;
+  for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
+    let u = (i + 0.5) / sw, v = (j + 0.5) / sh;
+    if (kind === 2) {
+      // Flow: two layers of gentle waves bend the space.
+      for (let layer = 0; layer < 2; layer++) {
+        const du = 0.2 * Math.sin(2.3 * v + 1.7 * u + 0.9) + 0.1 * Math.sin(4.1 * v - 2.6 * u + 2.2);
+        const dv = 0.2 * Math.sin(2.1 * u - 1.3 * v + 0.3) + 0.1 * Math.sin(3.7 * u + 2.9 * v - 1.1);
+        u += du; v += dv;
+      }
+    } else if (kind === 1) {
+      // Grid: a slight wobble so the edges aren't straight.
+      const wu = u + 0.06 * Math.sin(5.1 * v + 1.3) * Math.cos(3.3 * u), wv = v + 0.06 * Math.sin(4.7 * u - 0.7) * Math.cos(2.9 * v);
+      u = wu; v = wv;
+    }
+    let total = 0, chroma = 0, L = 0, A = 0, B = 0;
+    for (let k = 0; k < spots.length; k++) {
+      const d2 = ((u - spots[k].x) * ax) ** 2 + ((v - spots[k].y) * ay) ** 2; // in long sides
+      const wt = Math.exp(-d2 / (2 * sig * sig)) + 1e-9;
+      total += wt; chroma += chromas[k] * wt;
+      L += spots[k].lab[0] * wt; A += spots[k].lab[1] * wt; B += spots[k].lab[2] * wt;
+    }
+    L /= total; A /= total; B /= total;
+    const now = Math.hypot(A, B), lift = now > 1e-4 ? Math.min(cap, (chroma / total) / now) : 1;
+    const rgb = bytesOf([L, A * lift, B * lift], p3), o = (j * sw + i) * 4;
+    // A whisper of noise (under one level) so smooth blends never show 8-bit bands.
+    const n = Math.random() - 0.5;
+    d[o] = rgb[0] + n; d[o + 1] = rgb[1] + n; d[o + 2] = rgb[2] + n; d[o + 3] = 255;
   }
   sctx.putImageData(image, 0, 0);
-  const margin = long / 8;
+  ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.filter = `blur(${long / 20}px)`;
-  ctx.drawImage(small, -margin, -margin, w + margin * 2, h + margin * 2);
-  ctx.filter = "none";
+  ctx.drawImage(small, 0, 0, w, h);
 }
 
 /** A gradient as a canvas. `grain`: 0–1. Linear uses the colours in the order given. */
-export function renderGradient(kind: Kind, colours: Colour[], w: number, h: number, grain: number) {
+/** A gradient as a canvas. `grain`: 0–1. Linear uses the colours in the order given. `meshStyle`: see MESH_STYLES. */
+export function renderGradient(kind: Kind, colours: Colour[], w: number, h: number, grain: number, meshStyle = 0) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(w));
   canvas.height = Math.max(1, Math.round(h));
   const ctx = ctx2d(canvas, { willReadFrequently: true });
   if (!ctx || !colours.length) return canvas;
-  if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours);
+  if (kind === "mesh") drawMesh(ctx, canvas.width, canvas.height, colours, meshStyle);
   else if (kind === "radial") drawRadial(ctx, canvas.width, canvas.height, colours);
   else drawLinear(ctx, canvas.width, canvas.height, colours);
   addGrain(ctx, canvas.width, canvas.height, grain);

@@ -4,7 +4,7 @@ import { Braces, Copy, Download, Hash, ImageDown, ImagePlus, Mail, RectangleVert
 import { play } from "cuelume";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { looksLikeHeic } from "@/lib/heic";
-import { labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
+import { MESH_STYLES, labsOf, linearCss, linearSvg, meshCss, meshSvg, radialCss, radialSvg, renderGradient, sharesOf, type Colour, type Kind } from "@/lib/gradients";
 import { chromaOf, cssOf, ctx2d, hexOfLab, labOf, vibeFilter, vibeName, vibeOf, type Lab } from "@/lib/color";
 import { extractPalettes, gradientOrders } from "./palette";
 import styles from "./tool.module.css";
@@ -294,8 +294,10 @@ export default function ColourTool() {
   }, [colours, order]);
 
   /** Mesh: Shuffle moves each colour to another colour's spot, for a new arrangement. */
+  const meshStyle = order % MESH_STYLES.length;
   const meshColours = useMemo(() => {
-    const n = colours.length, k = n ? order % n : 0;
+    // Shuffle on mesh: first through the three styles, then each time round with the colours moved on one place.
+    const n = colours.length, k = n ? Math.floor(order / MESH_STYLES.length) % n : 0;
     return k ? colours.map((c, i) => ({ ...c, x: colours[(i + k) % n].x, y: colours[(i + k) % n].y })) : colours;
   }, [colours, order]);
 
@@ -305,11 +307,11 @@ export default function ColourTool() {
     if (!photo || !colours.length) return null;
     const w = 200, h = Math.round(200 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
     return {
-      mesh: renderGradient("mesh", lateMesh, w, h, lateGrain / 100).toDataURL(),
+      mesh: renderGradient("mesh", lateMesh, w, h, lateGrain / 100, meshStyle).toDataURL(),
       linear: renderGradient("linear", lateLinear, w, h, lateGrain / 100).toDataURL(),
       radial: renderGradient("radial", lateLinear, w, h, lateGrain / 100).toDataURL(),
     };
-  }, [photo, colours.length, lateMesh, lateLinear, lateGrain]);
+  }, [photo, colours.length, lateMesh, lateLinear, lateGrain, meshStyle]);
 
   /*
     The page's glow: its own small render with no grain (it's blurred away anyway), swapped in only
@@ -319,8 +321,8 @@ export default function ColourTool() {
   const glowSrc = useMemo(() => {
     if (!photo || !lateMesh.length) return undefined;
     const h = Math.round(160 * Math.min(1.6, Math.max(0.6, photo.height / photo.width)));
-    return renderGradient(kind, kind === "mesh" ? lateMesh : lateLinear, 160, h, 0).toDataURL();
-  }, [photo, kind, lateMesh, lateLinear]);
+    return renderGradient(kind, kind === "mesh" ? lateMesh : lateLinear, 160, h, 0, meshStyle).toDataURL();
+  }, [photo, kind, lateMesh, lateLinear, meshStyle]);
   const [ambient, setAmbient] = useState<string>();
   useEffect(() => {
     const timer = setTimeout(() => setAmbient(glowSrc), 250);
@@ -402,7 +404,7 @@ export default function ColourTool() {
     if (format === "png") {
       const long = 2048, w = ratio > 1 ? long / ratio : long, h = ratio > 1 ? long : long * ratio;
       setOpen(null);
-      done(await deliver(await encode(renderGradient(which, ordered, w, h, grain / 100), "image/png"), `${slug(title)}-${which}${tag}.png`), `${KIND_LABEL[which]} gradient`);
+      done(await deliver(await encode(renderGradient(which, ordered, w, h, grain / 100, meshStyle), "image/png"), `${slug(title)}-${which}${tag}.png`), `${KIND_LABEL[which]} gradient`);
       return;
     }
     const w = ratio > 1 ? Math.round(1024 / ratio) : 1024, h = ratio > 1 ? 1024 : Math.round(1024 * ratio);
@@ -575,8 +577,8 @@ export default function ColourTool() {
                   style={{ backgroundImage: previews ? `url(${previews[value]})` : undefined }}
                   onClick={() => { setKind(value); say(KIND_HINT[value]); }} />
               ))}
-              <button type="button" className={styles.iconButton} aria-label="Shuffle" title={kind === "mesh" ? "Shuffle where the colours glow" : kind === "radial" ? "Shuffle which colour is in the middle" : "Shuffle the order"}
-                onClick={() => setOrder(o => o + 1)}><Shuffle size={14} /></button>
+              <button type="button" className={styles.iconButton} aria-label="Shuffle" title={kind === "mesh" ? "Shuffle: Soft blobs, Grid or Flow" : kind === "radial" ? "Shuffle which colour is in the middle" : "Shuffle the order"}
+                onClick={() => { setOrder(o => o + 1); if (kind === "mesh") say(MESH_STYLES[(order + 1) % MESH_STYLES.length]); }}><Shuffle size={14} /></button>
             </div>
             <div className={styles.popWrap} ref={saveMenu}>
               <button type="button" className={styles.round} aria-expanded={saveOpen} aria-haspopup="menu" aria-label="Save" title="Save"
